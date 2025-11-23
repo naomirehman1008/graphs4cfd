@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from typing import Optional
 
 from .model import GNN
-from .blocks import MLP, MP, DownMP, UpMP
+from .blocks import MLP, MP, DownMP, UpMP, CNNLayer
 from ..graph import Graph
 
 
@@ -159,6 +159,7 @@ class NsTwoScaleGNN(GNN):
         self.mp22 = MP(*arch["mp22"])
         self.mp23 = MP(*arch["mp23"])
         self.mp24 = MP(*arch["mp24"])
+        
         # Upsampling to level 1
         self.up_mp21 = UpMP(arch["up_mp21"], 2)
         # Level 1
@@ -198,6 +199,130 @@ class NsTwoScaleGNN(GNN):
         graph.field, graph.edge_attr = F.selu(graph.field), F.selu(graph.edge_attr)
         graph.field, _              = self.mp24(graph.field, graph.edge_attr, graph.edge_index)
         graph.field                 = F.selu(graph.field)
+        # Upsampling to level 1
+        graph = self.up_mp21(graph, field1, pos1, activation=torch.tanh)
+        graph.edge_index, graph.edge_attr = edge_index1, edge_attr1
+        # MP at level 1
+        graph.field, graph.edge_attr = self.mp121(graph.field, graph.edge_attr, graph.edge_index)
+        graph.field, graph.edge_attr = F.selu(graph.field), F.selu(graph.edge_attr)
+        graph.field, graph.edge_attr = self.mp122(graph.field, graph.edge_attr, graph.edge_index)
+        graph.field, graph.edge_attr = F.selu(graph.field), F.selu(graph.edge_attr)
+        graph.field, graph.edge_attr = self.mp123(graph.field, graph.edge_attr, graph.edge_index)
+        graph.field, graph.edge_attr = F.selu(graph.field), F.selu(graph.edge_attr)
+        graph.field, _              = self.mp124(graph.field, graph.edge_attr, graph.edge_index)
+        graph.field                 = F.selu(graph.field)
+        # Decode
+        output = self.node_decoder(graph.field)
+        # Restore data
+        graph.field, graph.edge_attr = field, edge_attr
+        # Time-step
+        return graph.field[:,-self.num_fields:] + output
+
+
+class NsTwoScaleGNNwCNN(GNN):
+    """The 2S-GNN for incompressible flow inference from Lino et al. (2022) (https://doi.org/10.1063/5.0097679).
+
+    In that work, the hyperparameters were:
+    ```python
+    arch = {
+        ################ Edge-functions ################## Node-functions ##############
+        # Encoder
+        "edge_encoder": (2, (128,128,128), False),
+        "node_encoder": (5, (128,128,128), False),
+        # Level 1
+        "mp111": ((128+2*128, (128,128,128), True), (128+128, (128,128,128), True)),
+        "mp112": ((128+2*128, (128,128,128), True), (128+128, (128,128,128), True)),
+        "mp113": ((128+2*128, (128,128,128), True), (128+128, (128,128,128), True)),
+        "mp114": ((128+2*128, (128,128,128), True), (128+128, (128,128,128), True)),
+        "down_mp12": (2+128, (128,128,128), True),
+        # Level 2
+        "mp21": ((128+2*128, (128,128,128), True), (128+128, (128,128,128), True)),
+        "mp22": ((128+2*128, (128,128,128), True), (128+128, (128,128,128), True)),
+        "mp23": ((128+2*128, (128,128,128), True), (128+128, (128,128,128), True)),
+        "mp24": ((128+2*128, (128,128,128), True), (128+128, (128,128,128), True)),
+        "up_mp21": (2+128+128, (128,128,128), True),
+        # Level 1
+        "mp121": ((128+2*128, (128,128,128), True), (128+128, (128,128,128), True)),
+        "mp122": ((128+2*128, (128,128,128), True), (128+128, (128,128,128), True)),
+        "mp123": ((128+2*128, (128,128,128), True), (128+128, (128,128,128), True)),
+        "mp124": ((128+2*128, (128,128,128), True), (128+128, (128,128,128), True)),
+        # Decoder
+        "decoder": (128, (128,128,3), False),
+    }
+    ```
+
+    Args:
+        model (str, optional): Name of the model to load. Defaults to None.
+    """
+
+    def __init__(self, model: str = None, *args, **kwargs) -> None:
+        if model is not None:
+            if model == "2S-GNN-NsCircle-v1":
+                super().__init__(arch=None, weights=None, checkpoint=os.path.join(os.path.dirname(__file__), 'weights/NsMuSGNN/NsTwoScaleGNN.chk'), *args, **kwargs)
+            else:
+                raise ValueError(f"Model {model} not recognized.")
+        else:
+            super().__init__(*args, **kwargs)
+
+    def load_arch(self, arch: dict):
+        self.arch = arch
+        # Encoder
+        self.edge_encoder = MLP(*arch["edge_encoder"])
+        self.node_encoder = MLP(*arch["node_encoder"])
+        # Level 1
+        self.mp111 = MP(*arch["mp111"])
+        self.mp112 = MP(*arch["mp112"])
+        self.mp113 = MP(*arch["mp113"])
+        self.mp114 = MP(*arch["mp114"])
+        # Downsampling to level 2
+        self.down_mp12 = DownMP(arch["down_mp12"], 1)
+        # Level 2
+        self.cnn21 = CNNLayer(arch["cnn21"], 1)
+        self.cnn22 = CNNLayer(arch["cnn22"], 1)
+        self.cnn23 = CNNLayer(arch["cnn23"], 1)
+        self.cnn24 = CNNLayer(arch["cnn24"], 1)
+        
+        # Upsampling to level 1
+        self.up_mp21 = UpMP(arch["up_mp21"], 2)
+        # Level 1
+        self.mp121 = MP(*arch["mp121"])
+        self.mp122 = MP(*arch["mp122"])
+        self.mp123 = MP(*arch["mp123"])
+        self.mp124 = MP(*arch["mp124"])
+        # Decoder
+        self.node_decoder = MLP(*arch["decoder"])
+        self.to(self.device)
+
+    def forward(self, graph: Graph, t: Optional[int] = None) -> torch.Tensor:
+        field, edge_attr = graph.field, graph.edge_attr
+        # Concatenate field, loc, glob and omega
+        graph.field = torch.cat([getattr(graph, v) for v in ('field', 'loc', 'glob', 'omega') if hasattr(graph, v)], dim=1)
+        # Encode
+        graph.edge_attr = F.selu(self.edge_encoder(graph.edge_attr))
+        graph.field     = F.selu(self.node_encoder(graph.field))
+        # MP at level 1
+        graph.field, graph.edge_attr = self.mp111(graph.field, graph.edge_attr, graph.edge_index)
+        graph.field, graph.edge_attr = F.selu(graph.field), F.selu(graph.edge_attr)
+        graph.field, graph.edge_attr = self.mp112(graph.field, graph.edge_attr, graph.edge_index)
+        graph.field, graph.edge_attr = F.selu(graph.field), F.selu(graph.edge_attr)
+        graph.field, graph.edge_attr = self.mp113(graph.field, graph.edge_attr, graph.edge_index)
+        graph.field, graph.edge_attr = F.selu(graph.field), F.selu(graph.edge_attr)
+        graph.field, graph.edge_attr = self.mp114(graph.field, graph.edge_attr, graph.edge_index)
+        graph.field, graph.edge_attr = F.selu(graph.field), F.selu(graph.edge_attr)
+        field1, pos1, edge_index1, edge_attr1 = graph.field, graph.pos, graph.edge_index, graph.edge_attr
+        # Downsampling to level 2
+        graph = self.down_mp12(graph, activation=torch.tanh)
+        # MP at level 2
+        # CNN at level 2
+        graph                       = self.cnn21(graph)
+        graph.field                 = F.selu(graph.field)
+        graph                       = self.cnn22(graph)
+        graph.field                 = F.selu(graph.field)
+        graph                       = self.cnn23(graph)
+        graph.field                 = F.selu(graph.field)
+        graph                       = self.cnn24(graph)
+        graph.field                 = F.selu(graph.field)
+
         # Upsampling to level 1
         graph = self.up_mp21(graph, field1, pos1, activation=torch.tanh)
         graph.edge_index, graph.edge_attr = edge_index1, edge_attr1
@@ -560,7 +685,6 @@ class NsFourScaleGNN(GNN):
         graph.field, graph.edge_attr = field, edge_attr
         # Time-step
         return graph.field[:,-self.num_fields:] + output
-    
 
 
 class AdvOneScaleGNN(GNN):

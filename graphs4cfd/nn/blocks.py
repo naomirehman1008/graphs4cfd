@@ -186,6 +186,52 @@ class GNBlock(nn.Module):
         return v, e
 
 
+class CNBlock(nn.Module):
+    r"""A Conv neural network block 
+    
+    Args:
+        edge_mlp_args (Tuple): Arguments for the MLP used for updating the edge features.
+        node_mlp_args (Tuple): Arguments for the MLP used for updating the node features.
+        aggr (str, optional): The aggregation operator to use. Can be 'mean' or 'sum'. Defaults to 'mean'.
+
+    Methods:
+        reset_parameters(): Reinitializes the parameters of the MLPs.
+        forward(x: torch.Tensor, edge_index: torch.Tensor, edge_attr: torch.Tensor) -> torch.Tensor: Computes the forward pass of the GN block.
+    """
+
+    def __init__(self,
+                 edge_mlp_args: Tuple,
+                 node_mlp_args: Tuple,
+                 conv_args: Tuple,
+                 aggr: str = 'mean'):
+        super().__init__()
+        self.edge_mlp = MLP(*edge_mlp_args)
+        self.node_mlp = MLP(*node_mlp_args)
+        # (in_channels = n edge features, out_channels = n edge features, kernel_size = 3? larger could be interesting, groups = n edge features (?) something else could be interesting)
+        self.conv = nn.Conv2d(*conv_args)
+        self.aggr = aggr
+
+    def reset_parameters(self):
+        models = [model for model in [self.node_mlp, self.edge_mlp] if model is not None]
+        for model in models:
+            if hasattr(model, 'reset_parameters'):
+                model.reset_parameters()
+
+    def forward(self,
+                v: torch.Tensor,
+                e: torch.Tensor,
+                edge_index: torch.Tensor) -> torch.Tensor:
+        row, col = edge_index
+        # Edge update
+        e = self.edge_mlp( torch.cat((e, v[row], v[col]), dim=-1) )
+        # Edge aggregation
+        aggr = nn.conv2d(e, )
+        aggr = scatter(e, col, dim=0, dim_size=v.size(0), reduce=self.aggr)
+        # Node update
+        v = self.node_mlp( torch.cat((aggr, v), dim=-1) )
+        return v, e
+
+
 # Alias for GNBlock
 MP = GNBlock
 
@@ -234,6 +280,66 @@ class DownMP(nn.Module):
                 graph.field = activation(graph.field)
         # Aggregate the edges
         graph.edge_index, graph.edge_attr = pool_edge(idxHr_to_idxLr, graph.edge_index, graph.edge_attr, aggr="mean")
+        return graph
+
+class CNNLayer(nn.Module):
+    r"""DownMP from Lino et al. (2022) (https://doi.org/10.1063/5.0097679)
+    
+    Args:
+        down_mlp_args (Tuple): Arguments for the MLP used for the downsampling edge-model.
+        hr_graph_idx (int): The index of the high-resolution graph.
+
+    Methods:
+        reset_parameters(): Reinitializes the parameters of the MLPs.
+        forward(graph: Graph, activation: Optional[Callable] = None) -> Graph: Computes the forward pass of the DownMP.
+    """
+
+    def __init__(self,
+                 conv_args: Tuple,
+                 # (in_channels = n edge features, out_channels = n edge features, kernel_size = 3? larger could be interesting, groups = n edge features (?) something else could be interesting)
+                 hr_graph_idx: int):
+        super().__init__()
+        in_channels = conv_args[0]
+        out_channels = conv_args[1]
+        kernel_size = conv_args[2]
+        groups = conv_args[3]
+
+        self.in_channels = in_channels
+
+        self.conv_layer = nn.Conv2d(in_channels=in_channels, 
+            out_channels=out_channels, 
+            kernel_size=kernel_size, 
+            groups=groups,
+            padding='same')
+        self.hr_graph_idx = hr_graph_idx # The index of the high-resolution graph
+        self.lr_graph_idx = hr_graph_idx + 1 # The index of the low-resolution graph
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        if hasattr(self.conv_layer, 'reset_parameters'):
+                self.conv_layer.reset_parameters()
+
+    def forward(self,
+                graph: Graph, 
+                activation: Optional[Callable] = None) -> Graph:
+        # Get needed variables
+        pos             = getattr(graph, f'pos_{self.lr_graph_idx}')
+        cluster         = getattr(graph, f'cluster_{self.lr_graph_idx}')
+        mask            = getattr(graph, f'mask_{self.lr_graph_idx}')
+        idxHr_to_idxLr  = getattr(graph, f'idx{self.hr_graph_idx}_to_idx{self.lr_graph_idx}')
+        e               = getattr(graph, f'e_{self.hr_graph_idx}{self.lr_graph_idx}')
+        grid_2d         = getattr(graph, f'grid_2d_{self.lr_graph_idx}')
+        # Fill grid with actual field values
+        grid_2d_safe = grid_2d.where(grid_2d == -1, 0)
+        gridded_field = graph.field[grid_2d_safe.flatten()].reshape(*grid_2d.shape, -1)
+        gridded_field[grid_2d == -1] = 0
+        conved_gridded_field = self.conv_layer(gridded_field.permute(2, 0, 1))
+        conved_gridded_field = conved_gridded_field.permute(1, 2, 0)
+        # Tranform grid back to nodes
+        buf_shape = (graph.field.shape[0] + 1, *graph.field.shape[1:])
+        ungridded = torch.zeros(buf_shape, device=pos.device, dtype=torch.float)
+        ungridded[grid_2d.flatten() + 1] = conved_gridded_field.reshape(-1, self.in_channels)
+        graph.field = ungridded[1:]
         return graph
 
 
