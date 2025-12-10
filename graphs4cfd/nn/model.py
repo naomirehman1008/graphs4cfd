@@ -56,7 +56,8 @@ class TrainConfig():
                  scheduler: Union[None, dict] = None,
                  stopping: float = 0.,
                  mixed_precision: bool = False,
-                 device: Optional[torch.device] = None):
+                 device: Optional[torch.device] = None,
+                 training_log = False):
         self.name = name    
         self.folder = folder
         self.checkpoint = checkpoint
@@ -74,6 +75,7 @@ class TrainConfig():
         self.stopping = stopping
         self.mixed_precision = mixed_precision
         self.device = device
+        self.training_log = training_log
 
     def __repr__(self):
         return repr(self.__dict__)
@@ -197,6 +199,10 @@ class GNN(nn.Module):
         if os.path.exists(path):
             print('Renaming', path, 'to:', path+'.bck')
             os.rename(path, path+'.bck')
+        if(train_config['training_log']):
+            log_f = open(train_config["name"]+"_training.log", 'w')
+            log_f.write("epoch,loss,gradients,validation_loss\n")
+            log_f.flush()
         # Initialise tensor board writer
         if train_config['tensor_board'] is not None: writer = SummaryWriter(os.path.join(train_config["tensor_board"], train_config["name"]))
         # Initialise automatic mixed-precision training
@@ -219,8 +225,16 @@ class GNN(nn.Module):
             print("\n")
             print(f"Hyperparameters: n_out = {n_out}, lr = {optimiser.param_groups[0]['lr']}")
             self.train()
+
             training_loss = 0.
             gradients_norm = 0.
+
+            training_mse_loss = 0.
+            training_div_loss = 0.
+            training_mom_loss = 0.
+            training_bc_loss = 0.
+            training_spec_loss = 0.
+
             for iteration, data in enumerate(train_loader):
                 data = data.to(self.device)
                 for t in range(n_out):
@@ -228,7 +242,8 @@ class GNN(nn.Module):
                         data.field = self.shift_and_replace(data.field, pred.detach())
                     with torch.cuda.amp.autocast() if train_config['mixed_precision'] else contextlib.nullcontext(): # Use automatic mixed-precision
                         pred = self.forward(data, t)
-                        loss = criterion(data, pred, data.target[:,self.num_fields*t:self.num_fields*(t+1)])
+                        loss_components = {}
+                        loss = criterion(data, pred, data.target[:,self.num_fields*t:self.num_fields*(t+1)],loss_components)
                     # Back-propagation
                     if train_config['mixed_precision']:
                         scaler.scale(loss).backward()
@@ -237,6 +252,13 @@ class GNN(nn.Module):
                     # Save training loss and gradients norm before applying gradient clipping to the weights
                     training_loss  += loss.item()/n_out
                     gradients_norm += self.grad_norm2()/n_out
+
+                    training_mse_loss += loss_components['mse']
+                    training_div_loss += loss_components['div']
+                    training_mom_loss += loss_components['mom']
+                    training_bc_loss  += loss_components['bc']
+                    training_spec_loss += loss_components['spec']
+
                     # Update the weights
                     if train_config['mixed_precision']:
                         # Clip the gradients
@@ -254,6 +276,13 @@ class GNN(nn.Module):
                     optimiser.zero_grad()
             training_loss  /= (iteration+1)
             gradients_norm /= (iteration+1)
+
+            training_mse_loss /= (iteration+1)
+            training_div_loss /= (iteration+1)
+            training_mom_loss /= (iteration+1)
+            training_bc_loss  /= (iteration+1)
+            training_spec_loss /= (iteration+1)
+
             # Display on terminal
             print(f"Epoch: {epoch:4d}, Training   loss: {training_loss:.4e}, Gradients: {gradients_norm:.4e}")
             # Testing
@@ -262,19 +291,60 @@ class GNN(nn.Module):
                 self.eval()
                 with torch.no_grad(): 
                     validation_loss = 0.
+
+                    val_mse_loss = 0.
+                    val_div_loss = 0.
+                    val_mom_loss = 0.
+                    val_bc_loss = 0.
+                    val_spec_loss = 0.
+
                     for iteration, data in enumerate(val_loader):
                         data = data.to(self.device)
+
                         for t in range(max_n_out):
                             if t > 0:
                                 data.field = self.shift_and_replace(data.field, pred)
                             pred = self.forward(data, t)
-                            validation_loss += validation_criterion(data, pred, data.target[:,self.num_fields*t:self.num_fields*(t+1)]).item()/max_n_out
+                            loss_components = {}
+                            validation_loss += validation_criterion(data, pred, data.target[:,self.num_fields*t:self.num_fields*(t+1)], loss_components).item()/max_n_out
+
+                            val_mse_loss = loss_components['mse']
+                            val_div_loss = loss_components['div']
+                            val_mom_loss = loss_components['mom']
+                            val_bc_loss = loss_components['bc']
+                            val_spec_loss = loss_components['spec']
+
                     validation_loss /= (iteration+1)
+
+                    val_mse_loss /= (iteration+1)
+                    val_div_loss /= (iteration+1)
+                    val_mom_loss /= (iteration+1)
+                    val_bc_loss  /= (iteration+1)
+                    val_spec_loss /= (iteration+1)
                     print(f"Epoch: {epoch:4d}, Validation loss: {validation_loss:.4e}")
+                    if(train_config['training_log']):
+                        log_f.write(f"{epoch},{training_loss},{gradients_norm},{validation_loss}\n")
+                        log_f.flush()
+            else:
+                if(train_config['training_log']):
+                    log_f.write(f"{epoch},{training_loss},{gradients_norm}\n")
             # Log in TensorBoard
             if train_config['tensor_board'] is not None:
                 writer.add_scalar('Loss/train', training_loss,   epoch)
-                if val_loader: writer.add_scalar('Loss/test',  validation_loss, epoch)
+
+                writer.add_scalar('Loss/physics/train/mse', training_mse_loss)
+                writer.add_scalar('Loss/physics/train/div', training_div_loss)
+                writer.add_scalar('Loss/physics/train/mom', training_mom_loss)
+                writer.add_scalar('Loss/physics/train/bc', training_bc_loss)
+                writer.add_scalar('Loss/physics/train/spec', training_spec_loss)
+
+                if val_loader: 
+                    writer.add_scalar('Loss/test',  validation_loss, epoch)
+                    writer.add_scalar('Loss/physics/test/mse', val_mse_loss)
+                    writer.add_scalar('Loss/physics/test/div', val_div_loss)
+                    writer.add_scalar('Loss/physics/test/mom', val_mom_loss)
+                    writer.add_scalar('Loss/physics/test/bc', val_bc_loss)
+                    writer.add_scalar('Loss/physics/test/spec', val_spec_loss)
             # Update lr
             if train_config['scheduler']['loss'][:2] == 'tr':
                 scheduler_loss = training_loss 

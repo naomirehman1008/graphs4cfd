@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -160,20 +161,33 @@ def reshape_graph_for_physics(graph, pred, target, n_f):
     Resgaoe grapge dges fron [batch * n_edges, 2] to [batch, n_edges, 2]
     Adds padding and a mask to handle varying meshes within the same batch.
     """
+    
     field = getattr(graph, 'field')
-    target = getattr(graph, 'target')
+    #target = getattr(graph, 'target')
     pos = getattr(graph, 'pos')
-    edge_index = getattr(graph, 'edge_index')
+    edge_index = getattr(graph, 'edge_index').permute(1, 0)
     bound = getattr(graph, 'bound')
     omega = getattr(graph, 'omega')
     glob = getattr(graph, 'glob')
 
+    print(f"field shape: {field.shape}")
+    print(f"target shape: {target.shape}")
+    print(f"pred shape: {pred.shape}")
+    print(f"bound shape: {bound.shape}")
+    print(f"omega shape: {omega.shape}")
+    print(f"glob shape: {glob.shape}")
+
+
     batch = getattr(graph, 'batch')
     batch_size = batch.max().item() + 1
 
-    n_nodes = torch.bincount(batch.batch) # get number of nodes in each frame
+    #print(f"Batch: {batch}")
+    #print(f"Elements: {torch.unique(batch)}")
+    n_nodes = torch.bincount(batch) # get number of nodes in each frame
+    #print(f"nodes per batch: {n_nodes}")
     max_n_nodes = n_nodes.max().item()
-    n_t = data.shape[1] / n_f # get number of time steps
+    n_t = int(target.shape[1] / n_f) # get number of time steps
+    field_t = int(field.shape[1] / n_f) # number of input time steps may be different
 
     fields = []
     targets = []
@@ -181,83 +195,115 @@ def reshape_graph_for_physics(graph, pred, target, n_f):
     poses = []
     edges = []
     bounds = []
-    omegeas = []
+    omegas = []
     globs = []
-    masks = []
-
-    int start_idx = 0
-    int end_idx = n_nodes[0].item()
+    node_masks = []
+    edge_masks = []
 
     n_edges = []
 
+    start_idx = 0
+    end_idx = 0
     # get max edges for padding
     for b in range(batch_size):
-        edge_mask = torch.isin(edge_index[:, 0], torch.arange(start_idx, end_idx)) # check if the souce node is in the node set (assume no criss cross between graphs)
-        edge_b = edge_index[edge_mask]
+        end_idx = start_idx + n_nodes[b].item()
+        edge_mask = torch.isin(edge_index[:, 0], torch.arange(start_idx, end_idx, device=pos.device)) # check if the souce node is in the node set (assume no criss cross between graphs)
+        edge_b = edge_index[edge_mask] - start_idx
         n_edges.append(edge_b.shape[0])
+
+        start_idx = end_idx
+
 
     max_n_edges = max(n_edges)
 
+    start_idx = 0
+    end_idx = 0
     for b in range(batch_size):
-        field_b     = field[batch.batch == b]
-        target_b    = target[batch.batch == b]
-        pred_b      = pred[batch.batch == b]
-        pos_b       = pos[batch.batch == b]
-        bound_b     = bound[batch.batch == b]
-        omega_b     = omega[batch.batch == b]
-        glob_b      = glob[batch.batch == b]
+        end_idx = start_idx + n_nodes[b].item()
+
+        field_b     = field[batch == b]
+        target_b    = target[batch == b]
+        pred_b      = pred[batch == b]
+        pos_b       = pos[batch == b]
+        bound_b     = bound[batch == b]
+        omega_b     = omega[batch == b]
+        glob_b      = glob[batch == b]
         
-        edge_mask = torch.isin(edge_index[:, 0], torch.arange(start_idx, end_idx))
-        edge_b = edge_index[edge_mask]
+        edge_mask = torch.isin(edge_index[:, 0], torch.arange(start_idx, end_idx, device=pos.device))
+        edge_b = edge_index[edge_mask] - start_idx
+        #print(f"first edge_b shape: {edge_b.shape}")
+
+        start_idx = end_idx
 
         b_n_edges = n_edges[b]
         b_n_nodes = n_nodes[b]
 
         padding = max_n_nodes - b_n_nodes
-        field_b     = F.pad(field_b, (0, padding), 'constant') # pad to max nodes
-        target_b    = F.pad(target_b, (0, padding), 'constant') # pad to max nodes
-        pred_b      = F.pad(pred_b, (0, padding), 'constant') # pad to max nodes
-        pos_b       = F.pad(pos_b, (0, padding), 'constant') # pad to max nodes
+        field_b     = F.pad(field_b, (0, 0, 0, padding), 'constant') # pad to max nodes
+        target_b    = F.pad(target_b, (0, 0, 0, padding), 'constant') # pad to max nodes
+        pred_b      = F.pad(pred_b, (0, 0, 0, padding), 'constant') # pad to max nodes
+        pos_b       = F.pad(pos_b, (0, 0, 0, padding), 'constant') # pad to max nodes
         bound_b      = F.pad(bound_b, (0, padding), 'constant') # pad to max nodes
-        omega_b      = F.pad(omega_b, (0, padding), 'constant') # pad to max nodes
-        glob_b       = F.pad(glob_b, (0, padding), 'constant') # pad to max nodes
+        omega_b      = F.pad(omega_b, (0, 0, 0, padding), 'constant') # pad to max nodes
+        glob_b       = F.pad(glob_b, (0, 0, 0, padding), 'constant') # pad to max nodes
 
-        edge_b      = F.pad(edge_b, (0, max_n_edges - b_n_edges), 'constant') # pad to max edges
+        edge_b      = F.pad(edge_b, (0, 0, 0, max_n_edges - b_n_edges), 'constant') # pad to max edges
+        #print(f"second edge_b shape: {edge_b.shape}")
 
         # do I ever use these?
-        node_mask_b      = torch.cat(torch.ones(b_n_nodes, device=pos.device), torch.zeros(padding, device=pos.device))
-        edge_mask_b      = torch.cat(torch.ones(b_n_edges, device=pos.device), torch.zeros(max_n_edges - b_n_edges, device=pos.device))
+        node_mask_b      = torch.cat((torch.ones(b_n_nodes, dtype=torch.int, device=pos.device), torch.zeros(padding, dtype=torch.int, device=pos.device)))
+        edge_mask_b      = torch.cat((torch.ones(b_n_edges, dtype=torch.int, device=pos.device), torch.zeros(max_n_edges - b_n_edges,  dtype=torch.int, device=pos.device)))
 
         # reshape along time dimension, permute to expected dim order
-        field_b = field_b.view(max_n_nodes, n_t, n_f).permute(1, 0, 2)
+        field_b = field_b.view(max_n_nodes, field_t, n_f).permute(1, 0, 2)
         target_b = target_b.view(max_n_nodes, n_t, n_f).permute(1, 0, 2)
         pred_b = pred_b.view(max_n_nodes, n_t, n_f).permute(1, 0, 2)
 
+        # add initial state to pred ( last field)
+        pred_b = torch.cat((field_b[-1].unsqueeze(0), pred_b), dim=0)
+
         # repeate along time dimension
-        pos_b = pos_b.repeat(n_t)
-        bound_b = bound_b.repeat(n_t)
-        omega_b = omega_b.repeat(n_t)
-        glob_b = glob_b.repeat(n_t)
-        edge_b = edge_b.repeate(n_t)
+        pos_b = pos_b.repeat(n_t+1, 1, 1)
+        bound_b = bound_b.repeat(n_t+1, 1)
+        omega_b = omega_b.repeat(n_t+1, 1, 1)
+        glob_b = glob_b.repeat(n_t+1, 1, 1)
+        edge_b = edge_b.repeat(n_t+1, 1, 1)
+
+        node_mask_b = node_mask_b.repeat(n_t+1, 1)
+        edge_mask_b = edge_mask_b.repeat(n_t+1, 1)
+
+        #print(f"third edge_b shape: {edge_b.shape}")
 
         fields.append(field_b)
         targets.append(target_b)
         preds.append(pred_b)
         poses.append(pos_b)
-        edges.append(edge_index_b)
+        edges.append(edge_b)
         bounds.append(bound_b)
         omegas.append(omega_b)
         globs.append(glob_b)
-        masks.append(mask_b)
+        node_masks.append(node_mask_b)
+        edge_masks.append(edge_mask_b)
 
     reshaped_field = torch.stack(fields, dim=0)
     reshaped_target = torch.stack(targets, dim=0)
     reshaped_pred = torch.stack(preds, dim=0)
     reshaped_pos = torch.stack(poses, dim=0)
-    reshaped_edges = torch.stach(edges, dim=0)
+    reshaped_edges = torch.stack(edges, dim=0)
     reshaped_bound = torch.stack(bounds, dim=0)
     reshaped_omega = torch.stack(omegas, dim=0)
-    reshaped_mask = torch.stack(masks, dim=0)
+    reshaped_node_mask = torch.stack(node_masks, dim=0)
+    reshaped_edge_mask = torch.stack(edge_masks, dim=0)
+
+    print(f"reshaped_field shape: {reshaped_field.shape}")
+    print(f"reshaped_target shape: {reshaped_target.shape}")
+    print(f"reshaped_pred shape: {reshaped_pred.shape}")
+    print(f"reshaped_pos shape: {reshaped_pos.shape}")
+    print(f"reshaped_edges shape: {reshaped_edges.shape}")
+    print(f"reshaped_bound shape: {reshaped_bound.shape}")
+    print(f"reshaped_omega shape: {reshaped_omega.shape}")
+    print(f"reshaped_node_mask shape: {reshaped_node_mask.shape}")
+    print(f"reshaped_edge_mask shape: {reshaped_edge_mask.shape}")
 
     physics_graph = {
         'field'     : reshaped_field,
@@ -267,20 +313,21 @@ def reshape_graph_for_physics(graph, pred, target, n_f):
         'edge_index' : reshaped_edges,
         'bound'     : reshaped_bound,
         'omega'     : reshaped_omega,
-        'mask'      : reshaped_mask,
-        'batch'     : batch.batch,
+        'edge_mask'      : reshaped_edge_mask,
+        'node_mask' : reshaped_node_mask,
+        'batch'     : batch,
         'max_nodes' : max_n_nodes,
         'n_t'       : n_t
     }
 
-    return physics_graph, reshaped_pred
+    return physics_graph
 
 class GraphLoss(nn.Module):
     def __init__(self, lambda_d=0):
         super().__init__()
         self.lambda_d  = lambda_d
 
-    def forward(self, graph, pred, target):
+    def forward(self, graph, pred, target, components=None):
         loss = F.mse_loss(pred, target)
         if self.lambda_d > 0:
             dirichlet_boundary = (graph.omega[:,0] == 1)
@@ -289,13 +336,13 @@ class GraphLoss(nn.Module):
         return loss
 
 class GraphLossWPhysicsLoss(nn.Module):
-    def __init__(self, lambda_d=0, mse_weight=1, div_weight=0, mom_weight=0, bc_weight=0, spec_weight=0):
+    def __init__(self, lambda_d=0, mse_weight=1, div_weight=0, mom_weight=0, bc_weight=0, spec_weight=0, dt=1):
         super().__init__()
         self.lambda_d  = lambda_d
         self.mse_weight = mse_weight
         self.div_weight = div_weight
         self.mom_weight = mom_weight
-        self.bc_weight  = bc_loss_weight
+        self.bc_weight  = bc_weight
         self.spec_weight = spec_weight
         self.dt = dt
 
@@ -303,18 +350,21 @@ class GraphLossWPhysicsLoss(nn.Module):
         self,
         physics_graph,
     ):
-        mesh_pos = physics_graph.pos
-        edges = physics_graph.edge_index
-        node_type = physics_graph.bound
-        velocity_hat = physics_graph.pred
+        mesh_pos = physics_graph['pos']
+        edges = physics_graph['edge_index']
+        #print(f"Edges shape: {edges.shape}")
+        node_type = physics_graph['bound']
+        velocity_hat = physics_graph['pred']
+        node_mask = physics_graph['node_mask']
+        edge_mask = physics_graph['edge_mask']
 
-        debug_print = overrides.pop("debug_print", False)
-        debug_tag   = overrides.pop("debug_tag",   None)
+        debug_print = True#overrides.pop("debug_print", False)
+        debug_tag   = None#overrides.pop("debug_tag",   None)
 
-        rho = 1
-        nu = 1 #FIXME
+        rho = 1.0
+        nu = 0.001 #FIXME
 
-        df = self.dt
+        dt = 1.0
         lam_div = self.div_weight
         lam_mom = self.mom_weight
         lam_bc = self.bc_weight
@@ -344,20 +394,23 @@ class GraphLossWPhysicsLoss(nn.Module):
             u = u_pred[:, t]            # [B,N,2]
             u_prev = u_pred[:, t-1]
             p = p_pred[:, t]            # [B,N,1]
+            n_m = node_mask[:, t]       # [B, N]
+            e_m = edge_mask[:, t]       # [B, N]
 
             # loop per batch to filter edges (valid nodes only) and keep undirected-once
             for b in range(B): 
                 # valid (non-ghost) nodes = not DISABLE (one-hot channel 2 is 1 for ghost/disabled)
-                valid_nodes_b = (node_type[b, t, :, NODE_DISABLE] != 1)  # [N] bool   
+                valid_nodes_b = (n_m[b] == 1) # [N] bool   
                 e_b = e[b]  # [E,2] 
-                e_b_f = _filter_edges_undirected_once(e_b, valid_nodes_b)   
+                e_b_f = e_b[(e_m[b] == 1)]
+                #e_b_f = _filter_edges_undirected_once(e_b, valid_nodes_b)   
                 if e_b_f.numel() == 0 or valid_nodes_b.sum() == 0:  # nothing to compute   
                     continue   
 
-                x_b = x[b]        # [N,2]   
-                u_b = u[b]        # [N,2]   
-                u_prev_b = u_prev[b]  # [N,2]   
-                p_b = p[b]        # [N,1]   
+                x_b = x[b][valid_nodes_b]        # [N,2]   
+                u_b = u[b][valid_nodes_b]        # [N,2]   
+                u_prev_b = u_prev[b][valid_nodes_b]  # [N,2]   
+                p_b = p[b][valid_nodes_b]        # [N,1]   
 
                 # singleton-batch calls to graph operators   
                 x1 = x_b.unsqueeze(0)              # [1,N,2]   
@@ -376,11 +429,11 @@ class GraphLossWPhysicsLoss(nn.Module):
 
                 # loss weights
                 if lam_div > 0:   
-                    div_loss = div_loss + (div_u_b.squeeze(-1)[vm] ** 2).mean()   
-                    div_count += 1   
+                    div_loss = div_loss + (div_u_b.squeeze(-1) ** 2).mean()   
+                    div_count += 1  
                 if lam_mom > 0:   
                     mom_res_b = du_dt_b + adv_b + (grad_p_b / (rho + eps)) - nu * lap_u_b   
-                    mom_loss = mom_loss + (mom_res_b[vm] ** 2).mean()   
+                    mom_loss = mom_loss + (mom_res_b ** 2).mean()   
                     mom_count += 1   
                 if lam_bc > 0:   
                     wall = node_type[b, t, :, NODE_WALL] == 1   
@@ -391,16 +444,16 @@ class GraphLossWPhysicsLoss(nn.Module):
                         bc_loss = bc_loss + (u_b[m] ** 2).mean()   
                         bc_count += 1   
                 if lam_spec > 0:   
-                    xb_val = x_b[vm]  # [Nv,2]   
-                    ub_val = u_b[vm]  # [Nv,2]   
+                    xb_val = x_b  # [Nv,2]   
+                    ub_val = u_b  # [Nv,2]   
                     # spectrum on valid nodes only (singleton batch)   
                     spec_loss = spec_loss + _spectrum_loss(xb_val.unsqueeze(0), ub_val.unsqueeze(0),
-                                                          self_hat=None, grid=cfg["spec_grid"])   
+                                                          self_hat=None)   
                     spec_count += 1   
 
         # Average across evaluated slices (use per-term counters)   
         if lam_div > 0: div_loss = div_loss / max(1, div_count)   
-        if lam_mom > 0: mom_loss = mom_loss / max(1, mom_count)   
+        #if lam_mom > 0: mom_loss = mom_loss / max(1, mom_count)   
         if lam_bc  > 0: bc_loss  = bc_loss  / max(1, bc_count)    
         if lam_spec> 0: spec_loss= spec_loss/ max(1, spec_count)  
 
@@ -419,14 +472,17 @@ class GraphLossWPhysicsLoss(nn.Module):
         terms = dict(div=div_loss.detach(), mom=mom_loss.detach(), bc=bc_loss.detach(), spec=spec_loss.detach())
         return total, terms
 
-    def forward(self, graph, pred, target):
+    def forward(self, graph, pred, target, components=None):
         total_loss = 0
         mse_loss = F.mse_loss(pred, target)
         if self.lambda_d > 0:
             dirichlet_boundary = (graph.omega[:,0] == 1)
             if dirichlet_boundary.any():
                 mse_loss += self.lambda_d*F.l1_loss(pred[dirichlet_boundary], target[dirichlet_boundary])
-        physics_graph = reshape_graph_for_physics(graph, pred, n_f=3)
-        physics_loss, terms = get_physics_loss(physics_graph)
+        physics_graph = reshape_graph_for_physics(graph, pred, target, n_f=3)
+        physics_loss, terms = self.compute_physics_loss(physics_graph)
+        terms['mse'] = mse_loss.detach()
         total_loss = self.mse_weight * mse_loss + physics_loss # (already weighted)
+        if (components is not None):
+            components.update(terms)
         return total_loss
