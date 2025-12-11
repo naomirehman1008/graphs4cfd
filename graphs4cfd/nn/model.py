@@ -332,19 +332,19 @@ class GNN(nn.Module):
             if train_config['tensor_board'] is not None:
                 writer.add_scalar('Loss/train', training_loss,   epoch)
 
-                writer.add_scalar('Loss/physics/train/mse', training_mse_loss)
-                writer.add_scalar('Loss/physics/train/div', training_div_loss)
-                writer.add_scalar('Loss/physics/train/mom', training_mom_loss)
-                writer.add_scalar('Loss/physics/train/bc', training_bc_loss)
-                writer.add_scalar('Loss/physics/train/spec', training_spec_loss)
+                writer.add_scalar('Loss/physics/train/mse', training_mse_loss, epoch)
+                writer.add_scalar('Loss/physics/train/div', training_div_loss, epoch)
+                writer.add_scalar('Loss/physics/train/mom', training_mom_loss, epoch)
+                writer.add_scalar('Loss/physics/train/bc', training_bc_loss, epoch)
+                writer.add_scalar('Loss/physics/train/spec', training_spec_loss, epoch)
 
                 if val_loader: 
                     writer.add_scalar('Loss/test',  validation_loss, epoch)
-                    writer.add_scalar('Loss/physics/test/mse', val_mse_loss)
-                    writer.add_scalar('Loss/physics/test/div', val_div_loss)
-                    writer.add_scalar('Loss/physics/test/mom', val_mom_loss)
-                    writer.add_scalar('Loss/physics/test/bc', val_bc_loss)
-                    writer.add_scalar('Loss/physics/test/spec', val_spec_loss)
+                    writer.add_scalar('Loss/physics/test/mse', val_mse_loss, epoch)
+                    writer.add_scalar('Loss/physics/test/div', val_div_loss, epoch)
+                    writer.add_scalar('Loss/physics/test/mom', val_mom_loss, epoch)
+                    writer.add_scalar('Loss/physics/test/bc', val_bc_loss, epoch)
+                    writer.add_scalar('Loss/physics/test/spec', val_spec_loss, epoch)
             # Update lr
             if train_config['scheduler']['loss'][:2] == 'tr':
                 scheduler_loss = training_loss 

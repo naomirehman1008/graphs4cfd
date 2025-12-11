@@ -170,12 +170,12 @@ def reshape_graph_for_physics(graph, pred, target, n_f):
     omega = getattr(graph, 'omega')
     glob = getattr(graph, 'glob')
 
-    print(f"field shape: {field.shape}")
-    print(f"target shape: {target.shape}")
-    print(f"pred shape: {pred.shape}")
-    print(f"bound shape: {bound.shape}")
-    print(f"omega shape: {omega.shape}")
-    print(f"glob shape: {glob.shape}")
+    #print(f"field shape: {field.shape}")
+    #print(f"target shape: {target.shape}")
+    #print(f"pred shape: {pred.shape}")
+    #print(f"bound shape: {bound.shape}")
+    #print(f"omega shape: {omega.shape}")
+    #print(f"glob shape: {glob.shape}")
 
 
     batch = getattr(graph, 'batch')
@@ -231,7 +231,6 @@ def reshape_graph_for_physics(graph, pred, target, n_f):
         
         edge_mask = torch.isin(edge_index[:, 0], torch.arange(start_idx, end_idx, device=pos.device))
         edge_b = edge_index[edge_mask] - start_idx
-        #print(f"first edge_b shape: {edge_b.shape}")
 
         start_idx = end_idx
 
@@ -248,7 +247,6 @@ def reshape_graph_for_physics(graph, pred, target, n_f):
         glob_b       = F.pad(glob_b, (0, 0, 0, padding), 'constant') # pad to max nodes
 
         edge_b      = F.pad(edge_b, (0, 0, 0, max_n_edges - b_n_edges), 'constant') # pad to max edges
-        #print(f"second edge_b shape: {edge_b.shape}")
 
         # do I ever use these?
         node_mask_b      = torch.cat((torch.ones(b_n_nodes, dtype=torch.int, device=pos.device), torch.zeros(padding, dtype=torch.int, device=pos.device)))
@@ -272,8 +270,6 @@ def reshape_graph_for_physics(graph, pred, target, n_f):
         node_mask_b = node_mask_b.repeat(n_t+1, 1)
         edge_mask_b = edge_mask_b.repeat(n_t+1, 1)
 
-        #print(f"third edge_b shape: {edge_b.shape}")
-
         fields.append(field_b)
         targets.append(target_b)
         preds.append(pred_b)
@@ -295,15 +291,15 @@ def reshape_graph_for_physics(graph, pred, target, n_f):
     reshaped_node_mask = torch.stack(node_masks, dim=0)
     reshaped_edge_mask = torch.stack(edge_masks, dim=0)
 
-    print(f"reshaped_field shape: {reshaped_field.shape}")
-    print(f"reshaped_target shape: {reshaped_target.shape}")
-    print(f"reshaped_pred shape: {reshaped_pred.shape}")
-    print(f"reshaped_pos shape: {reshaped_pos.shape}")
-    print(f"reshaped_edges shape: {reshaped_edges.shape}")
-    print(f"reshaped_bound shape: {reshaped_bound.shape}")
-    print(f"reshaped_omega shape: {reshaped_omega.shape}")
-    print(f"reshaped_node_mask shape: {reshaped_node_mask.shape}")
-    print(f"reshaped_edge_mask shape: {reshaped_edge_mask.shape}")
+    #print(f"reshaped_field shape: {reshaped_field.shape}")
+    #print(f"reshaped_target shape: {reshaped_target.shape}")
+    #print(f"reshaped_pred shape: {reshaped_pred.shape}")
+    #print(f"reshaped_pos shape: {reshaped_pos.shape}")
+    #print(f"reshaped_edges shape: {reshaped_edges.shape}")
+    #print(f"reshaped_bound shape: {reshaped_bound.shape}")
+    #print(f"reshaped_omega shape: {reshaped_omega.shape}")
+    #print(f"reshaped_node_mask shape: {reshaped_node_mask.shape}")
+    #print(f"reshaped_edge_mask shape: {reshaped_edge_mask.shape}")
 
     physics_graph = {
         'field'     : reshaped_field,
@@ -352,13 +348,12 @@ class GraphLossWPhysicsLoss(nn.Module):
     ):
         mesh_pos = physics_graph['pos']
         edges = physics_graph['edge_index']
-        #print(f"Edges shape: {edges.shape}")
         node_type = physics_graph['bound']
         velocity_hat = physics_graph['pred']
         node_mask = physics_graph['node_mask']
         edge_mask = physics_graph['edge_mask']
 
-        debug_print = True#overrides.pop("debug_print", False)
+        debug_print = False#overrides.pop("debug_print", False)
         debug_tag   = None#overrides.pop("debug_tag",   None)
 
         rho = 1.0
