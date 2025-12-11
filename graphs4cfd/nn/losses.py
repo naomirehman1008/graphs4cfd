@@ -163,7 +163,6 @@ def reshape_graph_for_physics(graph, pred, target, n_f):
     """
     
     field = getattr(graph, 'field')
-    #target = getattr(graph, 'target')
     pos = getattr(graph, 'pos')
     edge_index = getattr(graph, 'edge_index').permute(1, 0)
     bound = getattr(graph, 'bound')
@@ -181,10 +180,8 @@ def reshape_graph_for_physics(graph, pred, target, n_f):
     batch = getattr(graph, 'batch')
     batch_size = batch.max().item() + 1
 
-    #print(f"Batch: {batch}")
-    #print(f"Elements: {torch.unique(batch)}")
     n_nodes = torch.bincount(batch) # get number of nodes in each frame
-    #print(f"nodes per batch: {n_nodes}")
+
     max_n_nodes = n_nodes.max().item()
     n_t = int(target.shape[1] / n_f) # get number of time steps
     field_t = int(field.shape[1] / n_f) # number of input time steps may be different
