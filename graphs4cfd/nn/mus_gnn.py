@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from typing import Optional
 
 from .model import GNN
-from .blocks import MLP, MP, DownMP, UpMP
+from .blocks import MLP, MP, DownMP, UpMP, UpCN, DownCN, ResidualCN, CN
 from ..graph import Graph
 
 
@@ -561,6 +561,152 @@ class NsFourScaleGNN(GNN):
         # Time-step
         return graph.field[:,-self.num_fields:] + output
     
+
+class NsFourScaleGNNwCNNwOffsets(GNN):
+    """
+    Args:
+        model (str, optional): Name of the model to load. Defaults to None.
+    """
+
+    def __init__(self, model: str = None, *args, **kwargs):
+        if model is not None:
+            if model == "4S-GNN-NsCircle-v1":
+                super().__init__(arch=None, weights=None, checkpoint=os.path.join(os.path.dirname(__file__), 'weights/NsMuSGNN/NsFourScaleGNN.chk'), *args, **kwargs)
+            else:
+                raise ValueError(f"Model {model} not recognized.")
+        else:
+            super().__init__(*args, **kwargs)
+
+    def load_arch(self, arch: dict):
+        # TODO: Try changing regular CN layers to depthwise-separable CN layers
+        # arch based on https://link.springer.com/chapter/10.1007/978-3-030-00889-5_18
+        self.arch = arch
+        # Encoder
+        self.edge_encoder = MLP(*arch["edge_encoder"])
+        self.node_encoder = MLP(*arch["node_encoder"])
+        # Level 1
+        self.mp111 = MP(*arch["mp111"])
+        self.mp112 = MP(*arch["mp112"])
+        self.mp113 = MP(*arch["mp113"])
+        self.mp114 = MP(*arch["mp114"])
+        # Downsampling to level 2
+        self.down_mp12  = DownMP(arch["down_mp12"], 1)
+        # Level 2
+        self.cn211      = CN(arch["cn211"], True, True, 2)
+        self.rcn211     = ResidualCN(arch["rcn211"], False, False, 2)
+        # Downsampling to level 3
+        self.down_cn23 = DownCN(arch["down_cn23"], 3)
+        # Level 3
+        self.cn311      = CN(arch["cn311"], False, False, 3)
+        self.rcn311     = ResidualCN(arch["rcn311"], False, False, 3)
+        # Downsampling to level 4
+        self.down_cn34 = DownCN(arch["down_cn34"], 3)
+        # Level 4
+        self.cn411      = CN(arch["cn411"], False, False, 4)
+        self.rcn411     = ResidualCN(arch["rcn411"], False, False, 4)
+        # Upsampling to level 3
+        self.up_cn43    = UpCN(arch["up_cn43"], 4)
+        # Level 3
+        self.cn321      = CN(arch["cn321"], False, True, 3) # reduce input channels
+        self.rcn321     = ResidualCN(arch["rcn321"], False, False, 3)
+        # Upsampling to Level 2
+        self.up_cn32     = UpCN(arch["up_cn32"], 3)
+        # Level 2
+        self.cn221      = CN(arch["cn221"], False, True, 2) # reduce input channels
+        self.rcn221    = ResidualCN(arch["rcn221"], True, False, 2)
+        # Upsampling to Level 1
+        self.up_mp21 = UpMP(arch["up_mp21"], 2)
+        # Level 1
+        self.mp121 = MP(*arch["mp121"])
+        self.mp122 = MP(*arch["mp122"])
+        self.mp123 = MP(*arch["mp123"])
+        self.mp124 = MP(*arch["mp124"])
+        # Decoder
+        self.node_decoder = MLP(*arch["decoder"])
+        self.to(self.device)
+
+    def forward(self, graph: Graph, t: Optional[int] = None) -> torch.Tensor:
+        field, edge_attr = graph.field, graph.edge_attr
+        # Concatenate field, loc, glob and omega
+        graph.field = torch.cat([getattr(graph, v) for v in ('field', 'loc', 'glob', 'omega') if hasattr(graph, v)], dim=1)
+        # Encode
+        graph.edge_attr = F.selu(self.edge_encoder(graph.edge_attr))
+        graph.field     = F.selu(self.node_encoder(graph.field))
+        # MP at level 1
+        graph.field, graph.edge_attr = self.mp111(graph.field, graph.edge_attr, graph.edge_index)
+        graph.field, graph.edge_attr = F.selu(graph.field), F.selu(graph.edge_attr)
+        graph.field, graph.edge_attr = self.mp112(graph.field, graph.edge_attr, graph.edge_index)
+        graph.field, graph.edge_attr = F.selu(graph.field), F.selu(graph.edge_attr)
+        graph.field, graph.edge_attr = self.mp113(graph.field, graph.edge_attr, graph.edge_index)
+        graph.field, graph.edge_attr = F.selu(graph.field), F.selu(graph.edge_attr)
+        graph.field, graph.edge_attr = self.mp114(graph.field, graph.edge_attr, graph.edge_index)
+        graph.field, graph.edge_attr = F.selu(graph.field), F.selu(graph.edge_attr)
+        field1, pos1, edge_index1, edge_attr1 = graph.field, graph.pos, graph.edge_index, graph.edge_attr
+        # Downsampling to level 2
+        graph = self.down_mp12(graph, activation=torch.tanh)
+        # CN at level 2
+        grid_offsets2 = graph.grid_offsets_2
+        graph = self.cn211(graph, grid_offsets2)
+        graph.cached_grid = F.selu(graph.cached_grid)
+        graph = self.rcn211(graph)
+        graph.cached_grid = F.selu(graph.cached_grid)
+        #print(f"Cached grid requires grad? {graph.cached_grid.requires_grad}")
+        cached_grid2 = graph.cached_grid
+        # Downsampling to level 3
+        graph = self.down_cn23(graph) # maxpool
+        # CN at level 3
+        #grid_offsets3 = graph.grid_offsets_3
+        #graph = self.cn311(graph, grid_offsets3)
+        graph = self.cn311(graph)
+        graph.cached_grid = F.selu(graph.cached_grid)
+        graph = self.rcn311(graph)
+        graph.cached_grid = F.selu(graph.cached_grid)
+        cached_grid3 = graph.cached_grid
+        # Downsampling to level 4
+        graph = self.down_cn34(graph)
+        # Level 4
+        #grid_offsets4 = graph.grid_offsets_4
+        #graph = self.cn411(graph, grid_offsets4)
+        graph = self.cn411(graph)
+        graph.cached_grid = F.selu(graph.cached_grid)
+        graph = self.rcn411(graph)
+        graph.cached_grid = F.selu(graph.cached_grid)
+        # Upsampling to level 3
+        graph = self.up_cn43(graph) # concatenate with output of level 3
+        # Level 3
+        graph = self.cn321(graph, cached_grid3)
+        graph.cached_grid = F.selu(graph.cached_grid)
+        graph = self.rcn321(graph)
+        graph.cached_grid = F.selu(graph.cached_grid)
+        # Upsampling to level 2
+        graph = self.up_cn32(graph)
+        # MP at level 2
+        graph = self.cn221(graph, cached_grid2)
+        graph.cached_grid = F.selu(graph.cached_grid)
+        # UNPAD BEFORE TRANSFORMING BACK TO GRID!!
+        graph.cached_grid = graph.cached_grid[:cached_grid2.shape[0], :cached_grid2.shape[1], :]
+        graph = self.rcn221(graph)
+        #graph.cached_grid = F.selu(graph.cached_grid)
+        graph.field = F.selu(graph.field)
+        # Upsampling to level 1
+        graph = self.up_mp21(graph, field1, pos1, activation=torch.tanh)
+        graph.edge_index, graph.edge_attr = edge_index1, edge_attr1
+        # MP at level 1
+        graph.field, graph.edge_attr = self.mp121(graph.field, graph.edge_attr, graph.edge_index)
+        graph.field, graph.edge_attr = F.selu(graph.field), F.selu(graph.edge_attr)
+        graph.field, graph.edge_attr = self.mp122(graph.field, graph.edge_attr, graph.edge_index)
+        graph.field, graph.edge_attr = F.selu(graph.field), F.selu(graph.edge_attr)
+        graph.field, graph.edge_attr = self.mp123(graph.field, graph.edge_attr, graph.edge_index)
+        graph.field, graph.edge_attr = F.selu(graph.field), F.selu(graph.edge_attr)
+        graph.field, _              = self.mp124(graph.field, graph.edge_attr, graph.edge_index)
+        graph.field                 = F.selu(graph.field)
+        # Decode
+        output = self.node_decoder(graph.field)
+        # Restore data
+        graph.field, graph.edge_attr = field, edge_attr
+        # Time-step
+        return graph.field[:,-self.num_fields:] + output
+
 
 
 class AdvOneScaleGNN(GNN):
