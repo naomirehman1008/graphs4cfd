@@ -8,6 +8,7 @@ import torch
 from torchvision import transforms
 import graphs4cfd as gfd
 import argparse
+import os
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -23,6 +24,8 @@ if __name__ == "__main__":
     parser.add_argument("--mom_weight", default=0.1)
     parser.add_argument("--bc_weight", default=0.0)
     parser.add_argument("--spec_weight", default=0.05)
+
+    parser.add_argument("--from_checkpoint", default=None)
 
     args = parser.parse_args()
     name = 'NsTwoScaleGNNphysics' + \
@@ -40,6 +43,7 @@ if __name__ == "__main__":
         name            = name,
         folder          = '.',
         tensor_board    = '.',
+        checkpoint      = args.from_checkpoint,
         chk_interval    = 1,
         training_loss   = gfd.nn.losses.GraphLossWPhysicsLoss(lambda_d=0.25,
             mse_weight=float(args.mse_weight),

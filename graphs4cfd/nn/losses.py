@@ -326,6 +326,11 @@ class GraphLoss(nn.Module):
             dirichlet_boundary = (graph.omega[:,0] == 1)
             if dirichlet_boundary.any():
                 loss += self.lambda_d*F.l1_loss(pred[dirichlet_boundary], target[dirichlet_boundary])
+        components['mse'] = loss.detach()
+        components['div'] = 0
+        components['mom'] = 0
+        components['bc'] = 0
+        components['spec'] = 0
         return loss
 
 class GraphLossWPhysicsLoss(nn.Module):
@@ -354,7 +359,7 @@ class GraphLossWPhysicsLoss(nn.Module):
         debug_tag   = None#overrides.pop("debug_tag",   None)
 
         rho = 1.0
-        nu = 0.001 #FIXME
+        nu = 0.001 
 
         dt = 1.0
         lam_div = self.div_weight
@@ -445,7 +450,7 @@ class GraphLossWPhysicsLoss(nn.Module):
 
         # Average across evaluated slices (use per-term counters)   
         if lam_div > 0: div_loss = div_loss / max(1, div_count)   
-        #if lam_mom > 0: mom_loss = mom_loss / max(1, mom_count)   
+        if lam_mom > 0: mom_loss = mom_loss / max(1, mom_count)   
         if lam_bc  > 0: bc_loss  = bc_loss  / max(1, bc_count)    
         if lam_spec> 0: spec_loss= spec_loss/ max(1, spec_count)  
 

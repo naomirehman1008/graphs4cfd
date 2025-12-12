@@ -308,11 +308,11 @@ class GNN(nn.Module):
                             loss_components = {}
                             validation_loss += validation_criterion(data, pred, data.target[:,self.num_fields*t:self.num_fields*(t+1)], loss_components).item()/max_n_out
 
-                            val_mse_loss = loss_components['mse']
-                            val_div_loss = loss_components['div']
-                            val_mom_loss = loss_components['mom']
-                            val_bc_loss = loss_components['bc']
-                            val_spec_loss = loss_components['spec']
+                            val_mse_loss += loss_components['mse']
+                            val_div_loss += loss_components['div']
+                            val_mom_loss += loss_components['mom']
+                            val_bc_loss += loss_components['bc']
+                            val_spec_loss += loss_components['spec']
 
                     validation_loss /= (iteration+1)
 

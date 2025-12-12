@@ -8,6 +8,7 @@ import torch
 from torchvision import transforms
 import graphs4cfd as gfd
 import argparse
+import os
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -24,6 +25,8 @@ if __name__ == "__main__":
     parser.add_argument("--bc_weight", default=0.0)
     parser.add_argument("--spec_weight", default=0.05)
 
+    parser.add_argument("--from_checkpoint", default=None)
+
     args = parser.parse_args()
     name = 'NsThreeScaleGNNphysics' + \
             "_rho_" + str(args.rho) + \
@@ -39,6 +42,7 @@ if __name__ == "__main__":
     train_config = gfd.nn.TrainConfig(
         name            = name,
         folder          = '.',
+        checkpoint      = args.from_checkpoint,
         tensor_board    = '.',
         chk_interval    = 1,
         training_loss   = gfd.nn.losses.GraphLossWPhysicsLoss(lambda_d=0.25,
@@ -132,6 +136,7 @@ if __name__ == "__main__":
         # Decoder
         "decoder": (128, (128,128,3), False),
     }  
+
     model = gfd.nn.NsThreeScaleGNN(arch=arch)
     print("Number of trainable parameters: ", model.num_params)
 
