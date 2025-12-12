@@ -514,26 +514,16 @@ class ResidualCN(nn.Module):
         self.kernel_size = conv_args[1]
         self.groups = conv_args[2]
 
-        self.conv_layer_pointwise_1 = nn.Conv2d(in_channels=self.in_channels, 
-            out_channels=self.in_channels, 
-            kernel_size=1,
-            groups=1,
-            padding='same')
-        self.conv_layer_depthwise_1 = nn.Conv2d(in_channels=self.in_channels, 
+        self.conv_layer_1 = nn.Conv2d(in_channels=self.in_channels, 
             out_channels=self.in_channels, 
             kernel_size=self.kernel_size,
-            groups=self.in_channels,
+            groups=1,
             padding='same')
         self.activation = nn.SELU()
-        self.conv_layer_pointwise_2 = nn.Conv2d(in_channels=self.in_channels, 
-            out_channels=self.in_channels, 
-            kernel_size=1,
-            groups=1,
-            padding='same')
-        self.conv_layer_depthwise_2 = nn.Conv2d(in_channels=self.in_channels, 
+        self.conv_layer_2 = nn.Conv2d(in_channels=self.in_channels, 
             out_channels=self.in_channels, 
             kernel_size=self.kernel_size,
-            groups=self.in_channels,
+            groups=1,
             padding='same')
         self.graph_idx = graph_idx
 
@@ -542,14 +532,10 @@ class ResidualCN(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        if hasattr(self.conv_layer_pointwise_1, 'reset_parameters'):
-            self.conv_layer_pointwise_1.reset_parameters()
-        if hasattr(self.conv_layer_depthwise_1, 'reset_parameters'):
-            self.conv_layer_depthwise_1.reset_parameters()
-        if hasattr(self.conv_layer_pointwise_2, 'reset_parameters'):
-            self.conv_layer_pointwise_2.reset_parameters()
-        if hasattr(self.conv_layer_depthwise_2, 'reset_parameters'):
-            self.conv_layer_depthwise_2.reset_parameters()
+        if hasattr(self.conv_layer_1, 'reset_parameters'):
+            self.conv_layer_1.reset_parameters()
+        if hasattr(self.conv_layer_2, 'reset_parameters'):
+            self.conv_layer_2.reset_parameters()
 
     def forward(self,
                 graph: Graph,
@@ -574,11 +560,9 @@ class ResidualCN(nn.Module):
             assert(extra_features is not None)
             gridded_field = torch.cat((gridded_field, extra_features), dim=2) # concatenate along the feature dimension
         permuted_gridded_field = gridded_field.permute(2, 0, 1)
-        conved_gridded_field = self.conv_layer_pointwise_1(permuted_gridded_field) # conv layer has feature dimensions first
-        conved_gridded_field = self.conv_layer_depthwise_1(conved_gridded_field) # conv layer has feature dimensions first
+        conved_gridded_field = self.conv_layer_1(permuted_gridded_field) # conv layer has feature dimensions first
         conved_gridded_field = self.activation(conved_gridded_field)
-        conved_gridded_field = self.conv_layer_pointwise_2(conved_gridded_field)
-        conved_gridded_field = self.conv_layer_depthwise_2(conved_gridded_field)
+        conved_gridded_field = self.conv_layer_2(conved_gridded_field)
         conved_gridded_field = conved_gridded_field.permute(1, 2, 0)
         conved_gridded_field = (gridded_field + conved_gridded_field)
         if (self.graph_idx == 2): # hack, mask only works at level 2
@@ -592,7 +576,6 @@ class ResidualCN(nn.Module):
             graph.field = ungridded[1:]
         #print(f"ResCN output dim: {graph.cached_grid.shape}")
         return graph
-
 
 class SeparableResidualCN(nn.Module):
     r"""Residual convolution block, based on residual block in https://www.nature.com/articles/s41598-024-73529-y
@@ -721,26 +704,16 @@ class GraphCompResidualCN(nn.Module):
         self.kernel_size = conv_args[1]
         self.groups = conv_args[2]
 
-        self.conv_layer_pointwise_1 = nn.Conv2d(in_channels=self.in_channels, 
-            out_channels=self.in_channels, 
-            kernel_size=1,
-            groups=1,
-            padding='same')
-        self.conv_layer_depthwise_1 = nn.Conv2d(in_channels=self.in_channels, 
+        self.conv_layer_1 = nn.Conv2d(in_channels=self.in_channels, 
             out_channels=self.in_channels, 
             kernel_size=self.kernel_size,
-            groups=self.in_channels,
+            groups=1,
             padding='same')
         self.activation = nn.SELU()
-        self.conv_layer_pointwise_2 = nn.Conv2d(in_channels=self.in_channels, 
-            out_channels=self.in_channels, 
-            kernel_size=1,
-            groups=1,
-            padding='same')
-        self.conv_layer_depthwise_2 = nn.Conv2d(in_channels=self.in_channels, 
+        self.conv_layer_2 = nn.Conv2d(in_channels=self.in_channels, 
             out_channels=self.in_channels, 
             kernel_size=self.kernel_size,
-            groups=self.in_channels,
+            groups=1,
             padding='same')
         self.graph_idx = graph_idx
 
@@ -772,11 +745,9 @@ class GraphCompResidualCN(nn.Module):
             assert(extra_features is not None)
             gridded_field = torch.cat((gridded_field, extra_features), dim=2) # concatenate along the feature dimension
         permuted_gridded_field = gridded_field.permute(2, 0, 1)
-        conved_gridded_field = self.conv_layer_pointwise_1(permuted_gridded_field) # conv layer has feature dimensions first
-        conved_gridded_field = self.conv_layer_depthwise_1(conved_gridded_field) # conv layer has feature dimensions first
+        conved_gridded_field = self.conv_layer_1(permuted_gridded_field) # conv layer has feature dimensions first
         conved_gridded_field = self.activation(conved_gridded_field)
-        conved_gridded_field = self.conv_layer_pointwise_2(conved_gridded_field)
-        conved_gridded_field = self.conv_layer_depthwise_2(conved_gridded_field)
+        conved_gridded_field = self.conv_layer_2(conved_gridded_field)
         conved_gridded_field = conved_gridded_field.permute(1, 2, 0)
         conved_gridded_field = (gridded_field + conved_gridded_field)
         if (self.graph_idx == 2): # hack, mask only works at level 2
@@ -789,7 +760,6 @@ class GraphCompResidualCN(nn.Module):
         graph.field = ungridded[1:]
         #print(f"ResCN output dim: {graph.cached_grid.shape}")
         return graph
-
 
 
 class SeparableGraphCompResidualCN(nn.Module):
@@ -909,15 +879,10 @@ class CN(nn.Module):
         self.out_channels = conv_args[1]
         self.kernel_size = conv_args[2]
 
-        self.conv_layer_pointwise = nn.Conv2d(in_channels=self.in_channels, 
-            out_channels=self.out_channels, 
-            kernel_size=1,
-            groups=1,
-            padding='same')
-        self.conv_layer_depthwise = nn.Conv2d(in_channels=self.out_channels, 
+        self.conv_layer = nn.Conv2d(in_channels=self.in_channels, 
             out_channels=self.out_channels, 
             kernel_size=self.kernel_size,
-            groups=self.out_channels,
+            groups=1,
             padding='same')
         self.graph_idx = graph_idx # The level of the graph
 
@@ -926,10 +891,8 @@ class CN(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        if hasattr(self.conv_layer_pointwise, 'reset_parameters'):
-            self.conv_layer_pointwise.reset_parameters()
-        if hasattr(self.conv_layer_depthwise, 'reset_parameters'):
-            self.conv_layer_depthwise.reset_parameters()
+        if hasattr(self.conv_layer, 'reset_parameters'):
+            self.conv_layer.reset_parameters()
 
     def forward(self,
                 graph: Graph,
@@ -961,8 +924,7 @@ class CN(nn.Module):
             #print(f"extra_features: {extra_features.shape}")
             gridded_field = torch.cat((gridded_field, extra_features), dim=2) # concatenate along the feature dimension
         gridded_field = gridded_field.permute(2, 0, 1)
-        conved_gridded_field = self.conv_layer_pointwise(gridded_field) # conv layer has feature dimensions first
-        conved_gridded_field = self.conv_layer_depthwise(conved_gridded_field)
+        conved_gridded_field = self.conv_layer(gridded_field) # conv layer has feature dimensions first
         conved_gridded_field = conved_gridded_field.permute(1, 2, 0)
         #print(f"grid_mask: {grid_mask.shape}")
         #print(f"conved_gridded_field: {conved_gridded_field.shape}")
