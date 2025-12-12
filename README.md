@@ -1,7 +1,7 @@
 # Graphs4CFD
 
 ## Changes
-This fork contains part of the code for the final project for CS271A. The finalized hybrid cnn-gnn code can be found on branch `cnn_gnn_clean_1` and the finalized implementation of  physics losses with MuSGNN can be found on branch `physics_losses`.
+This fork contains part of the code for the final project for CS271A. The finalized hybrid cnn-gnn code can be found on branch `cnn_gnn_clean_1` and the finalized implementation of  physics losses with MuSGNN can be found on branch `physics_losses`. Weights for both branches can be found in this google drive folder: [https://drive.google.com/drive/folders/1d4qSfjJzfkv0c5OaMXrw4dQN2jufhTQ_?usp=drive_link](https://drive.google.com/drive/folders/1d4qSfjJzfkv0c5OaMXrw4dQN2jufhTQ_?usp=drive_link).
 ![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)
 
 <p align="center">
