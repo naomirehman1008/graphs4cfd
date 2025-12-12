@@ -594,6 +594,110 @@ class ResidualCN(nn.Module):
         return graph
 
 
+class SeparableResidualCN(nn.Module):
+    r"""Residual convolution block, based on residual block in https://www.nature.com/articles/s41598-024-73529-y
+    
+    Args:
+        down_mlp_args (Tuple): Arguments for the MLP used for the downsampling edge-model.
+        hr_graph_idx (int): The index of the high-resolution graph.
+
+    Methods:
+        reset_parameters(): Reinitializes the parameters of the MLPs.
+        forward(graph: Graph, activation: Optional[Callable] = None) -> Graph: Computes the forward pass of the DownMP.
+    """
+
+    # INPUT AND OUTPUT CHANNELS HAVE TO BE SAME!!
+    def __init__(self,
+                 conv_args: Tuple,
+                 graph_compatible: bool,
+                 use_extra_features: bool,
+                 # (in_channels = n edge features, out_channels = n edge features, kernel_size = 3? larger could be interesting, groups = n edge features (?) something else could be interesting)
+                 graph_idx: int):
+        super().__init__()
+        self.in_channels = conv_args[0]
+        self.kernel_size = conv_args[1]
+        self.groups = conv_args[2]
+
+        self.conv_layer_pointwise_1 = nn.Conv2d(in_channels=self.in_channels, 
+            out_channels=self.in_channels, 
+            kernel_size=1,
+            groups=1,
+            padding='same')
+        self.conv_layer_depthwise_1 = nn.Conv2d(in_channels=self.in_channels, 
+            out_channels=self.in_channels, 
+            kernel_size=self.kernel_size,
+            groups=self.in_channels,
+            padding='same')
+        self.activation = nn.SELU()
+        self.conv_layer_pointwise_2 = nn.Conv2d(in_channels=self.in_channels, 
+            out_channels=self.in_channels, 
+            kernel_size=1,
+            groups=1,
+            padding='same')
+        self.conv_layer_depthwise_2 = nn.Conv2d(in_channels=self.in_channels, 
+            out_channels=self.in_channels, 
+            kernel_size=self.kernel_size,
+            groups=self.in_channels,
+            padding='same')
+        self.graph_idx = graph_idx
+
+        self.graph_compatible = graph_compatible
+        self.use_extra_features = use_extra_features
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        if hasattr(self.conv_layer_pointwise_1, 'reset_parameters'):
+            self.conv_layer_pointwise_1.reset_parameters()
+        if hasattr(self.conv_layer_depthwise_1, 'reset_parameters'):
+            self.conv_layer_depthwise_1.reset_parameters()
+        if hasattr(self.conv_layer_pointwise_2, 'reset_parameters'):
+            self.conv_layer_pointwise_2.reset_parameters()
+        if hasattr(self.conv_layer_depthwise_2, 'reset_parameters'):
+            self.conv_layer_depthwise_2.reset_parameters()
+
+    def forward(self,
+                graph: Graph,
+                extra_features: torch.tensor = None,
+                activation: Optional[Callable] = None) -> Graph:
+        # Get needed variables
+        pos             = getattr(graph, f'pos_{self.graph_idx}')
+        mask            = getattr(graph, f'mask_{self.graph_idx}')
+        grid_mask       = getattr(graph, f'grid_mask_{self.graph_idx}')
+        grid_2d         = getattr(graph, f'grid_2d_{self.graph_idx}')
+
+        # convert graph to grid
+        #if (self.graph_compatible):
+        # none of the layers use the graph as input
+        #    grid_2d_safe = grid_2d.where(grid_2d == -1, 0)
+        #    gridded_field = graph.field[grid_2d_safe.flatten()].reshape(*grid_2d.shape, -1)
+        #    gridded_field[grid_2d == -1] = 0
+        #else:
+        gridded_field = graph.cached_grid
+        # do convolution
+        if (self.use_extra_features):
+            assert(extra_features is not None)
+            gridded_field = torch.cat((gridded_field, extra_features), dim=2) # concatenate along the feature dimension
+        permuted_gridded_field = gridded_field.permute(2, 0, 1)
+        conved_gridded_field = self.conv_layer_pointwise_1(permuted_gridded_field) # conv layer has feature dimensions first
+        conved_gridded_field = self.conv_layer_depthwise_1(conved_gridded_field) # conv layer has feature dimensions first
+        conved_gridded_field = self.activation(conved_gridded_field)
+        conved_gridded_field = self.conv_layer_pointwise_2(conved_gridded_field)
+        conved_gridded_field = self.conv_layer_depthwise_2(conved_gridded_field)
+        conved_gridded_field = conved_gridded_field.permute(1, 2, 0)
+        conved_gridded_field = (gridded_field + conved_gridded_field)
+        if (self.graph_idx == 2): # hack, mask only works at level 2
+            conved_gridded_field = conved_gridded_field * grid_mask.unsqueeze(-1) # mask off any unwanted features
+        # Tranform grid back to nodes
+        graph.cached_grid = conved_gridded_field
+        if (self.graph_compatible):
+            buf_shape = (graph.field.shape[0] + 1, *graph.field.shape[1:])
+            ungridded = torch.zeros(buf_shape, device=pos.device, dtype=torch.float)
+            ungridded[grid_2d.flatten() + 1] = conved_gridded_field.reshape(-1, self.in_channels)
+            graph.field = ungridded[1:]
+        #print(f"ResCN output dim: {graph.cached_grid.shape}")
+        return graph
+
+
 class GraphCompResidualCN(nn.Module):
     r"""Residual convolution block, based on residual block in https://www.nature.com/articles/s41598-024-73529-y
     
@@ -687,7 +791,197 @@ class GraphCompResidualCN(nn.Module):
         return graph
 
 
+
+class SeparableGraphCompResidualCN(nn.Module):
+    r"""Residual convolution block, based on residual block in https://www.nature.com/articles/s41598-024-73529-y
+    
+    Args:
+        down_mlp_args (Tuple): Arguments for the MLP used for the downsampling edge-model.
+        hr_graph_idx (int): The index of the high-resolution graph.
+
+    Methods:
+        reset_parameters(): Reinitializes the parameters of the MLPs.
+        forward(graph: Graph, activation: Optional[Callable] = None) -> Graph: Computes the forward pass of the DownMP.
+    """
+
+    # INPUT AND OUTPUT CHANNELS HAVE TO BE SAME!!
+    def __init__(self,
+                 conv_args: Tuple,
+                 use_extra_features: bool,
+                 # (in_channels = n edge features, out_channels = n edge features, kernel_size = 3? larger could be interesting, groups = n edge features (?) something else could be interesting)
+                 graph_idx: int):
+        super().__init__()
+        self.in_channels = conv_args[0]
+        self.kernel_size = conv_args[1]
+        self.groups = conv_args[2]
+
+        self.conv_layer_pointwise_1 = nn.Conv2d(in_channels=self.in_channels, 
+            out_channels=self.in_channels, 
+            kernel_size=1,
+            groups=1,
+            padding='same')
+        self.conv_layer_depthwise_1 = nn.Conv2d(in_channels=self.in_channels, 
+            out_channels=self.in_channels, 
+            kernel_size=self.kernel_size,
+            groups=self.in_channels,
+            padding='same')
+        self.activation = nn.SELU()
+        self.conv_layer_pointwise_2 = nn.Conv2d(in_channels=self.in_channels, 
+            out_channels=self.in_channels, 
+            kernel_size=1,
+            groups=1,
+            padding='same')
+        self.conv_layer_depthwise_2 = nn.Conv2d(in_channels=self.in_channels, 
+            out_channels=self.in_channels, 
+            kernel_size=self.kernel_size,
+            groups=self.in_channels,
+            padding='same')
+        self.graph_idx = graph_idx
+
+        self.use_extra_features = use_extra_features
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        if hasattr(self.conv_layer_1, 'reset_parameters'):
+            self.conv_layer_1.reset_parameters()
+        if hasattr(self.conv_layer_2, 'reset_parameters'):
+            self.conv_layer_2.reset_parameters()
+
+    def forward(self,
+                graph: Graph,
+                extra_features: torch.tensor = None,
+                activation: Optional[Callable] = None) -> Graph:
+        # Get needed variables
+        pos             = getattr(graph, f'pos_{self.graph_idx}')
+        mask            = getattr(graph, f'mask_{self.graph_idx}')
+        grid_mask       = getattr(graph, f'grid_mask_{self.graph_idx}')
+        grid_2d         = getattr(graph, f'grid_2d_{self.graph_idx}')
+
+        grid_2d_safe = grid_2d.where(grid_2d == -1, 0)
+        gridded_field = graph.field[grid_2d_safe.flatten()].reshape(*grid_2d.shape, -1)
+        gridded_field[grid_2d == -1] = 0
+
+        # do convolution
+        if (self.use_extra_features):
+            assert(extra_features is not None)
+            gridded_field = torch.cat((gridded_field, extra_features), dim=2) # concatenate along the feature dimension
+        permuted_gridded_field = gridded_field.permute(2, 0, 1)
+        conved_gridded_field = self.conv_layer_pointwise_1(permuted_gridded_field) # conv layer has feature dimensions first
+        conved_gridded_field = self.conv_layer_depthwise_1(conved_gridded_field) # conv layer has feature dimensions first
+        conved_gridded_field = self.activation(conved_gridded_field)
+        conved_gridded_field = self.conv_layer_pointwise_2(conved_gridded_field)
+        conved_gridded_field = self.conv_layer_depthwise_2(conved_gridded_field)
+        conved_gridded_field = conved_gridded_field.permute(1, 2, 0)
+        conved_gridded_field = (gridded_field + conved_gridded_field)
+        if (self.graph_idx == 2): # hack, mask only works at level 2
+            conved_gridded_field = conved_gridded_field * grid_mask.unsqueeze(-1) # mask off any unwanted features
+        # Tranform grid back to nodes
+        graph.cached_grid = conved_gridded_field
+        buf_shape = (graph.field.shape[0] + 1, *graph.field.shape[1:])
+        ungridded = torch.zeros(buf_shape, device=pos.device, dtype=torch.float)
+        ungridded[grid_2d.flatten() + 1] = conved_gridded_field.reshape(-1, self.in_channels)
+        graph.field = ungridded[1:]
+        #print(f"ResCN output dim: {graph.cached_grid.shape}")
+        return graph
+
+
+
 class CN(nn.Module):
+    r"""Depthwise-pointwise convolution (depthwise separable??)
+    
+    Args:
+        down_mlp_args (Tuple): Arguments for the MLP used for the downsampling edge-model.
+        hr_graph_idx (int): The index of the high-resolution graph.
+
+    Methods:
+        reset_parameters(): Reinitializes the parameters of the MLPs.
+        forward(graph: Graph, activation: Optional[Callable] = None) -> Graph: Computes the forward pass of the DownMP.
+    """
+
+    def __init__(self,
+                 conv_args: Tuple,
+                 graph_compatible: bool,
+                 use_extra_features: bool,
+                 # (in_channels = n edge features, out_channels = n edge features, kernel_size = 3? larger could be interesting, groups = n edge features (?) something else could be interesting)
+                 graph_idx: int):
+        super().__init__()
+        self.in_channels = conv_args[0]
+        self.out_channels = conv_args[1]
+        self.kernel_size = conv_args[2]
+
+        self.conv_layer_pointwise = nn.Conv2d(in_channels=self.in_channels, 
+            out_channels=self.out_channels, 
+            kernel_size=1,
+            groups=1,
+            padding='same')
+        self.conv_layer_depthwise = nn.Conv2d(in_channels=self.out_channels, 
+            out_channels=self.out_channels, 
+            kernel_size=self.kernel_size,
+            groups=self.out_channels,
+            padding='same')
+        self.graph_idx = graph_idx # The level of the graph
+
+        self.graph_compatible = graph_compatible
+        self.use_extra_features = use_extra_features
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        if hasattr(self.conv_layer_pointwise, 'reset_parameters'):
+            self.conv_layer_pointwise.reset_parameters()
+        if hasattr(self.conv_layer_depthwise, 'reset_parameters'):
+            self.conv_layer_depthwise.reset_parameters()
+
+    def forward(self,
+                graph: Graph,
+                extra_features: torch.tensor = None,
+                activation: Optional[Callable] = None) -> Graph:
+        # Get needed variables
+        pos             = getattr(graph, f'pos_{self.graph_idx}')
+        mask            = getattr(graph, f'mask_{self.graph_idx}')
+        grid_mask       = getattr(graph, f'grid_mask_{self.graph_idx}')
+        grid_2d         = getattr(graph, f'grid_2d_{self.graph_idx}')
+
+        # convert graph to grid
+        if (self.graph_compatible):
+            grid_2d_safe = grid_2d.where(grid_2d == -1, 0)
+            gridded_field = graph.field[grid_2d_safe.flatten()].reshape(*grid_2d.shape, -1)
+            gridded_field[grid_2d == -1] = 0
+        else:
+            gridded_field = graph.cached_grid
+        # do convolution
+        if (self.use_extra_features):
+            assert(extra_features is not None)
+            #print(f"gridded_field: {gridded_field.shape}")
+            #print(f"extra_features: {extra_features.shape}")
+            h_pad = extra_features.shape[0] - gridded_field.shape[0]
+            v_pad = extra_features.shape[1] - gridded_field.shape[1]
+            padding = (0, 0, 0, v_pad, 0, h_pad) # pad the extra features to make dimensions work
+            gridded_field = F.pad(gridded_field, padding)
+            #print(f"gridded_field: {gridded_field.shape}")
+            #print(f"extra_features: {extra_features.shape}")
+            gridded_field = torch.cat((gridded_field, extra_features), dim=2) # concatenate along the feature dimension
+        gridded_field = gridded_field.permute(2, 0, 1)
+        conved_gridded_field = self.conv_layer_pointwise(gridded_field) # conv layer has feature dimensions first
+        conved_gridded_field = self.conv_layer_depthwise(conved_gridded_field)
+        conved_gridded_field = conved_gridded_field.permute(1, 2, 0)
+        #print(f"grid_mask: {grid_mask.shape}")
+        #print(f"conved_gridded_field: {conved_gridded_field.shape}")
+        if (self.graph_idx == 2): # hack, mask only works at level 2
+            graph.cached_grid = conved_gridded_field * grid_mask.unsqueeze(-1).repeat(1, 1, self.out_channels) # mask off any cells without nodes
+        else:
+            graph.cached_grid = conved_gridded_field
+        # Tranform grid back to nodes
+        if (self.graph_compatible):
+            buf_shape = (graph.field.shape[0] + 1, self.out_channels)
+            ungridded = torch.zeros(buf_shape, device=pos.device, dtype=torch.float)
+            ungridded[grid_2d.flatten() + 1] = conved_gridded_field.reshape(-1, self.out_channels)
+            graph.field = ungridded[1:]
+
+        #print(f"CN output dim: {graph.cached_grid.shape}")
+        return graph
+
+
+class SeparableCN(nn.Module):
     r"""Depthwise-pointwise convolution (depthwise separable??)
     
     Args:
