@@ -1,5 +1,8 @@
 # Graphs4CFD
 
+## CNN-GNN Hybrid
+This fork builds on the original Graphs4CFD repository and corresponding publication to incorporate CNNs on top of GNNs. The weights for the CNN-GNN hybrid models can be found in this google drive folder: [https://drive.google.com/drive/folders/1d4qSfjJzfkv0c5OaMXrw4dQN2jufhTQ_?usp=drive_link](https://drive.google.com/drive/folders/1d4qSfjJzfkv0c5OaMXrw4dQN2jufhTQ_?usp=drive_link)
+
 ![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)
 
 <p align="center">
