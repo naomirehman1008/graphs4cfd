@@ -63,7 +63,7 @@ class TrainConfig():
         self.tensor_board = tensor_board
         self.chk_interval = chk_interval
         self.training_loss = training_loss
-        self.validation_loss =validation_loss
+        self.validation_loss = validation_loss
         self.epochs = epochs
         self.num_steps = num_steps
         self.add_steps = add_steps

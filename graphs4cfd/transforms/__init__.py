@@ -5,7 +5,6 @@ from .geometric import *
 from .interpolate import *
 from .noise import *
 from .scale import *
-from .interpolate import *
 from .mus import *
 from .remus import *
 from .mugs import *

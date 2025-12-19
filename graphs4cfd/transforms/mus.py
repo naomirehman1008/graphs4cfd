@@ -17,7 +17,7 @@ def grid_clustering(pos_1: torch.Tensor, cell_size_2: torch.Tensor) -> Tuple[tor
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
                 New node positions, cluster index of each node, cluster index of non-empty clusters,
-                non-empyt-clusters index of each node, normalised relative position of each node with respect to the cell in which it is located,
+                non-empty-clusters index of each node, normalised relative position of each node with respect to the cell in which it is located,
                 2D grid mapping of new node indices (shape: [ny, nx], -1 for empty cells).
         """
         device = pos_1.device
@@ -42,10 +42,10 @@ def grid_clustering(pos_1: torch.Tensor, cell_size_2: torch.Tensor) -> Tuple[tor
         grid_indices = ((pos_2 - min_pos) / cell_size_2).floor().to(torch.int)  # [num_coarse_nodes, 2]
 
         nx = grid_indices[:, 0].max().item() + 1
-        if (nx % 2 == 1):
+        if nx % 2 == 1:
             nx = nx + 1
         ny = grid_indices[:, 1].max().item() + 1
-        if (ny % 2 == 1):
+        if ny % 2 == 1:
             ny = ny + 1
 
         # Initialize grid with -1 (empty cells)
@@ -62,7 +62,6 @@ def grid_clustering(pos_1: torch.Tensor, cell_size_2: torch.Tensor) -> Tuple[tor
         grid_2d_offsets = torch.zeros((int(ny), int(nx), 2), device=device, dtype=torch.float)
 
         grid_2d_offsets[grid_indices[:, 1], grid_indices[:, 0]] = grid_offsets
-        
 
         return pos_2, cluster_2, mask_2, idx1_to_idx2, e_12, grid_2d, grid_mask_2, grid_2d_offsets
 
@@ -80,7 +79,7 @@ class GridClustering():
     """
 
     def __init__(self, cells_size: List[float]):
-        self.num_levels = len(cells_size)+1 # Number of levels in MuS-GNN
+        self.num_levels = len(cells_size) + 1  # Number of levels in MuS-GNN
         self.cells_size = cells_size
 
     def __call__(self, graph: Graph) -> Graph:
@@ -90,6 +89,6 @@ class GridClustering():
             # Create V^3
             graph.pos_3, graph.cluster_3, graph.mask_3, graph.idx2_to_idx3, graph.e_23, graph.grid_2d_3, graph.grid_mask_3, graph.grid_offsets_3 = grid_clustering(graph.pos_2, self.cells_size[1])
         if self.num_levels > 3:
-            # Create V^3
+            # Create V^4
             graph.pos_4, graph.cluster_4, graph.mask_4, graph.idx3_to_idx4, graph.e_34, graph.grid_2d_4, graph.grid_mask_4, graph.grid_offsets_4 = grid_clustering(graph.pos_3, self.cells_size[2])
         return graph

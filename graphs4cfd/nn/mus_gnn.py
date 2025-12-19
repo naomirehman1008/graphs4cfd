@@ -650,13 +650,10 @@ class NsFourScaleGNNwCNNwOffsets(GNN):
         graph.cached_grid = F.selu(graph.cached_grid)
         graph = self.rcn211(graph)
         graph.cached_grid = F.selu(graph.cached_grid)
-        #print(f"Cached grid requires grad? {graph.cached_grid.requires_grad}")
         cached_grid2 = graph.cached_grid
         # Downsampling to level 3
-        graph = self.down_cn23(graph) # maxpool
+        graph = self.down_cn23(graph)
         # CN at level 3
-        #grid_offsets3 = graph.grid_offsets_3
-        #graph = self.cn311(graph, grid_offsets3)
         graph = self.cn311(graph)
         graph.cached_grid = F.selu(graph.cached_grid)
         graph = self.rcn311(graph)
@@ -665,14 +662,12 @@ class NsFourScaleGNNwCNNwOffsets(GNN):
         # Downsampling to level 4
         graph = self.down_cn34(graph)
         # Level 4
-        #grid_offsets4 = graph.grid_offsets_4
-        #graph = self.cn411(graph, grid_offsets4)
         graph = self.cn411(graph)
         graph.cached_grid = F.selu(graph.cached_grid)
         graph = self.rcn411(graph)
         graph.cached_grid = F.selu(graph.cached_grid)
         # Upsampling to level 3
-        graph = self.up_cn43(graph) # concatenate with output of level 3
+        graph = self.up_cn43(graph)
         # Level 3
         graph = self.cn321(graph, cached_grid3)
         graph.cached_grid = F.selu(graph.cached_grid)
@@ -683,10 +678,9 @@ class NsFourScaleGNNwCNNwOffsets(GNN):
         # MP at level 2
         graph = self.cn221(graph, cached_grid2)
         graph.cached_grid = F.selu(graph.cached_grid)
-        # UNPAD BEFORE TRANSFORMING BACK TO GRID!!
+        # Unpad before transforming back to grid
         graph.cached_grid = graph.cached_grid[:cached_grid2.shape[0], :cached_grid2.shape[1], :]
         graph = self.rcn221(graph)
-        #graph.cached_grid = F.selu(graph.cached_grid)
         graph.field = F.selu(graph.field)
         # Upsampling to level 1
         graph = self.up_mp21(graph, field1, pos1, activation=torch.tanh)
@@ -842,13 +836,10 @@ class NsFourScaleGNNwCNNSeparable(GNN):
         graph.cached_grid = F.selu(graph.cached_grid)
         graph = self.rcn211(graph)
         graph.cached_grid = F.selu(graph.cached_grid)
-        #print(f"Cached grid requires grad? {graph.cached_grid.requires_grad}")
         cached_grid2 = graph.cached_grid
         # Downsampling to level 3
-        graph = self.down_cn23(graph) # maxpool
+        graph = self.down_cn23(graph)
         # CN at level 3
-        #grid_offsets3 = graph.grid_offsets_3
-        #graph = self.cn311(graph, grid_offsets3)
         graph = self.cn311(graph)
         graph.cached_grid = F.selu(graph.cached_grid)
         graph = self.rcn311(graph)
@@ -857,14 +848,12 @@ class NsFourScaleGNNwCNNSeparable(GNN):
         # Downsampling to level 4
         graph = self.down_cn34(graph)
         # Level 4
-        #grid_offsets4 = graph.grid_offsets_4
-        #graph = self.cn411(graph, grid_offsets4)
         graph = self.cn411(graph)
         graph.cached_grid = F.selu(graph.cached_grid)
         graph = self.rcn411(graph)
         graph.cached_grid = F.selu(graph.cached_grid)
         # Upsampling to level 3
-        graph = self.up_cn43(graph) # concatenate with output of level 3
+        graph = self.up_cn43(graph)
         # Level 3
         graph = self.cn321(graph, cached_grid3)
         graph.cached_grid = F.selu(graph.cached_grid)
@@ -875,10 +864,9 @@ class NsFourScaleGNNwCNNSeparable(GNN):
         # MP at level 2
         graph = self.cn221(graph, cached_grid2)
         graph.cached_grid = F.selu(graph.cached_grid)
-        # UNPAD BEFORE TRANSFORMING BACK TO GRID!!
+        # Unpad before transforming back to grid
         graph.cached_grid = graph.cached_grid[:cached_grid2.shape[0], :cached_grid2.shape[1], :]
         graph = self.rcn221(graph)
-        #graph.cached_grid = F.selu(graph.cached_grid)
         graph.field = F.selu(graph.field)
         # Upsampling to level 1
         graph = self.up_mp21(graph, field1, pos1, activation=torch.tanh)
@@ -991,13 +979,10 @@ class NsFourScaleGNNwCNN(GNN):
         graph.cached_grid = F.selu(graph.cached_grid)
         graph = self.rcn211(graph)
         graph.cached_grid = F.selu(graph.cached_grid)
-        #print(f"Cached grid requires grad? {graph.cached_grid.requires_grad}")
         cached_grid2 = graph.cached_grid
         # Downsampling to level 3
-        graph = self.down_cn23(graph) # maxpool
+        graph = self.down_cn23(graph)
         # CN at level 3
-        #grid_offsets3 = graph.grid_offsets_3
-        #graph = self.cn311(graph, grid_offsets3)
         graph = self.cn311(graph)
         graph.cached_grid = F.selu(graph.cached_grid)
         graph = self.rcn311(graph)
@@ -1006,14 +991,12 @@ class NsFourScaleGNNwCNN(GNN):
         # Downsampling to level 4
         graph = self.down_cn34(graph)
         # Level 4
-        #grid_offsets4 = graph.grid_offsets_4
-        #graph = self.cn411(graph, grid_offsets4)
         graph = self.cn411(graph)
         graph.cached_grid = F.selu(graph.cached_grid)
         graph = self.rcn411(graph)
         graph.cached_grid = F.selu(graph.cached_grid)
         # Upsampling to level 3
-        graph = self.up_cn43(graph) # concatenate with output of level 3
+        graph = self.up_cn43(graph)
         # Level 3
         graph = self.cn321(graph, cached_grid3)
         graph.cached_grid = F.selu(graph.cached_grid)
@@ -1024,10 +1007,9 @@ class NsFourScaleGNNwCNN(GNN):
         # MP at level 2
         graph = self.cn221(graph, cached_grid2)
         graph.cached_grid = F.selu(graph.cached_grid)
-        # UNPAD BEFORE TRANSFORMING BACK TO GRID!!
+        # Unpad before transforming back to grid
         graph.cached_grid = graph.cached_grid[:cached_grid2.shape[0], :cached_grid2.shape[1], :]
         graph = self.rcn221(graph)
-        #graph.cached_grid = F.selu(graph.cached_grid)
         graph.field = F.selu(graph.field)
         # Upsampling to level 1
         graph = self.up_mp21(graph, field1, pos1, activation=torch.tanh)

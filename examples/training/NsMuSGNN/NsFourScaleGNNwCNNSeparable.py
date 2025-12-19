@@ -29,7 +29,8 @@ train_config = gfd.nn.TrainConfig(
 )
 
 # Training datasets
-path = "/home/nrehman/naomi_cfd/NsCircle/train/NsCircle.h5" # Replace with path to NsCircle.h5 (available at https://doi.org/10.5281/zenodo.7870707)
+# Replace with path to NsCircle.h5 (available at https://doi.org/10.5281/zenodo.7870707)
+path = "path/to/NsCircle.h5"
 transform = transforms.Compose([
     gfd.transforms.ConnectKNN(6, period=[None, "auto"]),
     gfd.transforms.ScaleNs({'u': (-2.1,2.6), 'v': (-2.25,2.1), 'p': (-3.7,2.35), 'Re': (500,1000)}, format='uvp'),
