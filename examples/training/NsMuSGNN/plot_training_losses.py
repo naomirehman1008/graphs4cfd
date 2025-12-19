@@ -17,14 +17,11 @@
 
 # imports
 import matplotlib.pyplot as plt
-import numpy as np
 import re
-import sys
 import os
 import argparse
 import pandas as pd
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-# import seaborn as sns
 
 def iter_event_files(logdir):
     logdir = os.path.abspath(logdir)
@@ -210,29 +207,6 @@ def plot_losses(log_data, output_dir, log_file_path):
     plt.savefig(os.path.join(output_dir, 'physics_loss_components.png'))
     plt.close()
 
-    """
-    # didn't collect loss per iteration :/
-    # Plot physics loss components over epochs (averaged), without creating a new separate list for each averaged loss
-    plt.figure()
-    num_epochs = len(epochs)
-    div_avg = [np.mean([div_losses[i] for i in range(len(iters)) if iters[i] // 1000 == epoch]) for epoch in epochs]
-    mom_avg = [np.mean([mom_losses[i] for i in range(len(iters)) if iters[i] // 1000 == epoch]) for epoch in epochs]
-    bc_avg = [np.mean([bc_losses[i] for i in range(len(iters)) if iters[i] // 1000 == epoch]) for epoch in epochs]
-    spec_avg = [np.mean([spec_losses[i] for i in range(len(iters)) if iters[i] // 1000 == epoch]) for epoch in epochs]
-    total_phys_avg = [np.mean([total_phys_losses[i] for i in range(len(iters)) if iters[i] // 1000 == epoch]) for epoch in epochs]
-    plt.plot(epochs, div_avg, label='Divergence Loss')
-    plt.plot(epochs, mom_avg, label='Momentum Loss')
-    plt.plot(epochs, bc_avg, label='Boundary Condition Loss')
-    plt.plot(epochs, spec_avg, label='Spectral Loss')
-    plt.plot(epochs, total_phys_avg, label='Total Physics Loss', linestyle='--', color='black')
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
-    plt.title('Averaged Physics Loss Components over Epochs')
-    plt.legend()
-    plt.savefig(os.path.join(output_dir, 'physics_loss_components_avg.png'))
-    plt.close() 
-    """
-
     # Plot physics loss components over epochs, adjusted with lambda values 
     plt.figure()
     lambda_div = float(log_data['div'][0])
@@ -275,7 +249,7 @@ def plot_losses(log_data, output_dir, log_file_path):
     plt.ylabel('Loss')
     plt.title('Loss Components over Epochs (scaled with λ)')
     plt.legend(loc='upper right')
-    plt.savefig(os.path.join(output_dir, 'all)loss_components_lambda.png'))
+    plt.savefig(os.path.join(output_dir, 'all_loss_components_lambda.png'))
     plt.close()
 
 if __name__ == "__main__":
@@ -295,7 +269,3 @@ if __name__ == "__main__":
             log_data[key].extend(additional_log_data[key])
 
     plot_losses(log_data, args.output_dir, args.log_file2 if args.log_file2 is not None else args.log_file1)
-
-    # call file like:
-    # python make_vis.py /path/to/log_file.txt /path/to/output_dir
-

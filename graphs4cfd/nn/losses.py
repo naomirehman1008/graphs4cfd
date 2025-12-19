@@ -158,7 +158,7 @@ def _filter_edges_undirected_once(edges_bt, valid_nodes_mask):
 def reshape_graph_for_physics(graph, pred, target, n_f):
     """
     Reshape graph field and target from [n_nodes * batch, n_f * n_t] to [batch, t, n_nodes, n_f].
-    Resgaoe grapge dges fron [batch * n_edges, 2] to [batch, n_edges, 2]
+    Reshape graph edges from [batch * n_edges, 2] to [batch, n_edges, 2].
     Adds padding and a mask to handle varying meshes within the same batch.
     """
     
@@ -168,14 +168,6 @@ def reshape_graph_for_physics(graph, pred, target, n_f):
     bound = getattr(graph, 'bound')
     omega = getattr(graph, 'omega')
     glob = getattr(graph, 'glob')
-
-    #print(f"field shape: {field.shape}")
-    #print(f"target shape: {target.shape}")
-    #print(f"pred shape: {pred.shape}")
-    #print(f"bound shape: {bound.shape}")
-    #print(f"omega shape: {omega.shape}")
-    #print(f"glob shape: {glob.shape}")
-
 
     batch = getattr(graph, 'batch')
     batch_size = batch.max().item() + 1
@@ -245,7 +237,6 @@ def reshape_graph_for_physics(graph, pred, target, n_f):
 
         edge_b      = F.pad(edge_b, (0, 0, 0, max_n_edges - b_n_edges), 'constant') # pad to max edges
 
-        # do I ever use these?
         node_mask_b      = torch.cat((torch.ones(b_n_nodes, dtype=torch.int, device=pos.device), torch.zeros(padding, dtype=torch.int, device=pos.device)))
         edge_mask_b      = torch.cat((torch.ones(b_n_edges, dtype=torch.int, device=pos.device), torch.zeros(max_n_edges - b_n_edges,  dtype=torch.int, device=pos.device)))
 
@@ -287,16 +278,6 @@ def reshape_graph_for_physics(graph, pred, target, n_f):
     reshaped_omega = torch.stack(omegas, dim=0)
     reshaped_node_mask = torch.stack(node_masks, dim=0)
     reshaped_edge_mask = torch.stack(edge_masks, dim=0)
-
-    #print(f"reshaped_field shape: {reshaped_field.shape}")
-    #print(f"reshaped_target shape: {reshaped_target.shape}")
-    #print(f"reshaped_pred shape: {reshaped_pred.shape}")
-    #print(f"reshaped_pos shape: {reshaped_pos.shape}")
-    #print(f"reshaped_edges shape: {reshaped_edges.shape}")
-    #print(f"reshaped_bound shape: {reshaped_bound.shape}")
-    #print(f"reshaped_omega shape: {reshaped_omega.shape}")
-    #print(f"reshaped_node_mask shape: {reshaped_node_mask.shape}")
-    #print(f"reshaped_edge_mask shape: {reshaped_edge_mask.shape}")
 
     physics_graph = {
         'field'     : reshaped_field,
@@ -401,28 +382,25 @@ class GraphLossWPhysicsLoss(nn.Module):
                 e_b = e[b]  # [E,2] 
                 e_b_f = e_b[(e_m[b] == 1)]
                 #e_b_f = _filter_edges_undirected_once(e_b, valid_nodes_b)   
-                if e_b_f.numel() == 0 or valid_nodes_b.sum() == 0:  # nothing to compute   
-                    continue   
+                if e_b_f.numel() == 0 or valid_nodes_b.sum() == 0:
+                    continue
 
-                x_b = x[b][valid_nodes_b]        # [N,2]   
-                u_b = u[b][valid_nodes_b]        # [N,2]   
-                u_prev_b = u_prev[b][valid_nodes_b]  # [N,2]   
-                p_b = p[b][valid_nodes_b]        # [N,1]   
+                x_b = x[b][valid_nodes_b]
+                u_b = u[b][valid_nodes_b]
+                u_prev_b = u_prev[b][valid_nodes_b]
+                p_b = p[b][valid_nodes_b]
 
-                # singleton-batch calls to graph operators   
-                x1 = x_b.unsqueeze(0)              # [1,N,2]   
-                e1 = e_b_f.unsqueeze(0)            # [1,E',2]  
-                u1 = u_b.unsqueeze(0)              # [1,N,2]   
-                # divergence, laplacian, grad p, jacobian   
-                div_u_b = _graph_divergence(x1, e1, u1)[0]         # [N,1]   
-                lap_u_b = _graph_laplacian(x1, e1, u1)[0]          # [N,2]   
-                grad_p_b = _graph_grad_scalar(x1, e1, p_b[..., 0].unsqueeze(0))[0]  # [N,2]   
-                jac_u_b  = _graph_grad_vector(x1, e1, u1)[0]       # [N,2,2]   
-                adv_b = torch.einsum('nik,ni->nk', jac_u_b, u_b)   # (u·∇)u -> [N,2]   
-                du_dt_b = (u_b - u_prev_b) / dt                    # [N,2]   
+                # singleton-batch calls to graph operators
+                x1 = x_b.unsqueeze(0)
+                e1 = e_b_f.unsqueeze(0)
+                u1 = u_b.unsqueeze(0)
 
-                # masks for averaging on real nodes only   
-                vm = valid_nodes_b  # [N]   
+                div_u_b = _graph_divergence(x1, e1, u1)[0]
+                lap_u_b = _graph_laplacian(x1, e1, u1)[0]
+                grad_p_b = _graph_grad_scalar(x1, e1, p_b[..., 0].unsqueeze(0))[0]
+                jac_u_b = _graph_grad_vector(x1, e1, u1)[0]
+                adv_b = torch.einsum('nik,ni->nk', jac_u_b, u_b)
+                du_dt_b = (u_b - u_prev_b) / dt
 
                 # loss weights
                 if lam_div > 0:   

@@ -8,7 +8,6 @@ import torch
 from torchvision import transforms
 import graphs4cfd as gfd
 import argparse
-import os
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
